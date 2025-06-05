@@ -1,4 +1,18 @@
-import cl as cl
+# -*- coding: utf-8 -*-
+"""
+Created on 2025-06-05 (Thu) 10:35:59
+
+Reference
+- https://github.com/vkola-lab/tmi2022/blob/main/feature_extractor/build_graphs.py
+
+@author: I.Azuma
+"""
+# print current working directory
+import os
+os.chdir('/workspace/mnt/cluster/HDD/azuma/Pathology_Graph/github/PathoGraphX')
+
+
+from feature_extractor import cl
 
 import torch
 import torch.nn as nn

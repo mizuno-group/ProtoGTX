@@ -11,178 +11,138 @@ Reference
 import os
 os.chdir('/workspace/mnt/cluster/HDD/azuma/Pathology_Graph/github/PathoGraphX')
 
+import h5py
+import openslide
+import numpy as np
+import matplotlib.pyplot as plt
 
-from feature_extractor import cl
+from tqdm import tqdm
+from glob import glob
 
 import torch
-import torch.nn as nn
-from torch.utils.data import DataLoader
-import torchvision.models as models
-import torchvision.transforms.functional as VF
-from torchvision import transforms
-
-import sys, argparse, os, glob
-import pandas as pd
-import numpy as np
-from PIL import Image
-from collections import OrderedDict
-
-class ToPIL(object):
-    def __call__(self, sample):
-        img = sample
-        img = transforms.functional.to_pil_image(img)
-        return img 
-
-class BagDataset():
-    def __init__(self, csv_file, transform=None):
-        self.files_list = csv_file
-        self.transform = transform
-    def __len__(self):
-        return len(self.files_list)
-    def __getitem__(self, idx):
-        temp_path = self.files_list[idx]
-        img = os.path.join(temp_path)
-        img = Image.open(img)
-        img = img.resize((224, 224))
-        sample = {'input': img}
-        
-        if self.transform:
-            sample = self.transform(sample)
-        return sample 
-
-class ToTensor(object):
-    def __call__(self, sample):
-        img = sample['input']
-        img = VF.to_tensor(img)
-        return {'input': img} 
-    
-class Compose(object):
-    def __init__(self, transforms):
-        self.transforms = transforms
-
-    def __call__(self, img):
-        for t in self.transforms:
-            img = t(img)
-        return img
-
-def save_coords(txt_file, csv_file_path):
-    for path in csv_file_path:
-        x, y = path.split('/')[-1].split('.')[0].split('_')
-        txt_file.writelines(str(x) + '\t' + str(y) + '\n')
-    txt_file.close()
-
-def adj_matrix(csv_file_path, output):
-    total = len(csv_file_path)
-    adj_s = np.zeros((total, total))
-
-    for i in range(total-1):
-        path_i = csv_file_path[i]
-        x_i, y_i = path_i.split('/')[-1].split('.')[0].split('_')
-        for j in range(i+1, total):
-            # sptial 
-            path_j = csv_file_path[j]
-            x_j, y_j = path_j.split('/')[-1].split('.')[0].split('_')
-            if abs(int(x_i)-int(x_j)) <=1 and abs(int(y_i)-int(y_j)) <= 1:
-                adj_s[i][j] = 1
-                adj_s[j][i] = 1
-
-    adj_s = torch.from_numpy(adj_s)
-    adj_s = adj_s.cuda()
-
-    return adj_s
-
-def bag_dataset(args, csv_file_path):
-    transformed_dataset = BagDataset(csv_file=csv_file_path,
-                                    transform=Compose([
-                                        ToTensor()
-                                    ]))
-    dataloader = DataLoader(transformed_dataset, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers, drop_last=False)
-    return dataloader, len(transformed_dataset)
 
 
-def compute_feats(args, bags_list, i_classifier, save_path=None, whole_slide_path=None):
-    num_bags = len(bags_list)
-    Tensor = torch.FloatTensor
-    for i in range(0, num_bags):
-        feats_list = []
-        if  args.magnification == '20x':
-            csv_file_path = glob.glob(os.path.join(bags_list[i], '*.jpeg'))
-            file_name = bags_list[i].split('/')[-3].split('_')[0]
-        if args.magnification == '5x' or args.magnification == '10x':
-            csv_file_path = glob.glob(os.path.join(bags_list[i], '*.jpg'))
+class CLAMGraphBuilder():
+    def __init__(self, patch_dir, feature_dir, qc_info_dir, wsi_dir, save_dir):
+        self.patch_dir = patch_dir
+        self.feature_dir = feature_dir
+        self.qc_info_dir = qc_info_dir
+        self.wsi_dir = wsi_dir
+        self.save_dir = save_dir
 
-        dataloader, bag_size = bag_dataset(args, csv_file_path)
-        print('{} files to be processed: {}'.format(len(csv_file_path), file_name))
+        self.patch_files = sorted(glob(os.path.join(patch_dir, 'patches/*.h5')))
+        self.feature_files = sorted(glob(os.path.join(feature_dir, 'h5_files/*.h5')))
+        self.qc_info_files = sorted(glob(os.path.join(qc_info_dir, 'qc_info*.h5')))
+        self.wsi_files = sorted(glob(os.path.join(wsi_dir, '*.svs')))
 
-        if os.path.isdir(os.path.join(save_path, 'simclr_files', file_name)) or len(csv_file_path) < 1:
-            print('alreday exists')
-            continue
-        with torch.no_grad():
-            for iteration, batch in enumerate(dataloader):
-                patches = batch['input'].float().cuda() 
-                feats, classes = i_classifier(patches)
-                #feats = feats.cpu().numpy()
-                feats_list.extend(feats)
-        
-        os.makedirs(os.path.join(save_path, 'simclr_files', file_name), exist_ok=True)
+    def build_graphs(self, patch_size=512, patch_level=0):
+        graphs = []
 
-        txt_file = open(os.path.join(save_path, 'simclr_files', file_name, 'c_idx.txt'), "w+")
-        save_coords(txt_file, csv_file_path)
-        # save node features
-        output = torch.stack(feats_list, dim=0).cuda()
-        torch.save(output, os.path.join(save_path, 'simclr_files', file_name, 'features.pt'))
-        # save adjacent matrix
-        adj_s = adj_matrix(csv_file_path, output)
-        torch.save(adj_s, os.path.join(save_path, 'simclr_files', file_name, 'adj_s.pt'))
+        file_names = [t.split('/')[-1].split('.')[0] for t in self.patch_files]
+        for file_name in tqdm(file_names):
+            patch_path = os.path.join(self.patch_dir, 'patches', f'{file_name}.h5')
+            feature_path = os.path.join(self.feature_dir, 'h5_files', f'{file_name}.h5')
+            qc_info_path = os.path.join(self.qc_info_dir, f'{file_name}_qc_info.h5')
+            wsi_path = os.path.join(self.wsi_dir, f'{file_name}.svs')
 
-        print('\r Computed: {}/{}'.format(i+1, num_bags))
-        
+            wsi = openslide.open_slide(wsi_path)
 
-def main():
-    parser = argparse.ArgumentParser(description='Compute TCGA features from SimCLR embedder')
-    parser.add_argument('--num_classes', default=2, type=int, help='Number of output classes')
-    parser.add_argument('--num_feats', default=512, type=int, help='Feature size')
-    parser.add_argument('--batch_size', default=128, type=int, help='Batch size of dataloader')
-    parser.add_argument('--num_workers', default=0, type=int, help='Number of threads for datalodaer')
-    parser.add_argument('--dataset', default=None, type=str, help='path to patches')
-    parser.add_argument('--backbone', default='resnet18', type=str, help='Embedder backbone')
-    parser.add_argument('--magnification', default='20x', type=str, help='Magnification to compute features')
-    parser.add_argument('--weights', default=None, type=str, help='path to the pretrained weights')
-    parser.add_argument('--output', default=None, type=str, help='path to the output graph folder')
-    args = parser.parse_args()
-    
-    if args.backbone == 'resnet18':
-        resnet = models.resnet18(pretrained=False, norm_layer=nn.InstanceNorm2d)
-        num_feats = 512
-    if args.backbone == 'resnet34':
-        resnet = models.resnet34(pretrained=False, norm_layer=nn.InstanceNorm2d)
-        num_feats = 512
-    if args.backbone == 'resnet50':
-        resnet = models.resnet50(pretrained=False, norm_layer=nn.InstanceNorm2d)
-        num_feats = 2048
-    if args.backbone == 'resnet101':
-        resnet = models.resnet101(pretrained=False, norm_layer=nn.InstanceNorm2d)
-        num_feats = 2048
-    for param in resnet.parameters():
-        param.requires_grad = False
-    resnet.fc = nn.Identity()
-    i_classifier = cl.IClassifier(resnet, num_feats, output_class=args.num_classes).cuda()
-    
-    # load feature extractor
-    if args.weights is None:
-        print('No feature extractor')
-        return
-    state_dict_weights = torch.load(args.weights)
-    state_dict_init = i_classifier.state_dict()
-    new_state_dict = OrderedDict()
-    for (k, v), (k_0, v_0) in zip(state_dict_weights.items(), state_dict_init.items()):
-        name = k_0
-        new_state_dict[name] = v
-    i_classifier.load_state_dict(new_state_dict, strict=False)
- 
-    os.makedirs(args.output, exist_ok=True)
-    bags_list = glob.glob(args.dataset)
-    compute_feats(args, bags_list, i_classifier, args.output)
-    
-if __name__ == '__main__':
-    main()
+            with h5py.File(qc_info_path, 'r') as qc_info:
+                passed_ids = qc_info['passed_ids'][:]
+                bkg_scores = qc_info['bkg_scores'][:]
+
+            with h5py.File(feature_path, 'r') as h5:
+                coords = h5['coords'][:]
+                features = h5['features'][:]
+
+            if len(passed_ids) == 0:
+                print(f"No passed patches for {file_name}, skipping...")
+                continue
+
+            passed_coords = coords[passed_ids]
+            passed_features = features[passed_ids]
+
+            adj = build_adjacency(passed_coords, patch_size=512)
+
+            assert adj.shape[0] == passed_features.shape[0]
+
+            # save adjacency matrix and passed_features
+            save_dir = os.path.join(self.save_dir, file_name)
+            os.makedirs(save_dir, exist_ok=True)
+
+            adj_save_path = os.path.join(save_dir, f'adj_s_{file_name}.pt')
+            torch.save(adj, adj_save_path)
+
+            features_save_path = os.path.join(save_dir, f'features_{file_name}.pt')
+            torch.save(torch.from_numpy(passed_features).float(), features_save_path)
+
+
+
+def build_adjacency(coords: np.ndarray, patch_size: int = 512) -> torch.Tensor:
+    N = coords.shape[0]
+    coord_to_index = {tuple(coord): idx for idx, coord in enumerate(coords)}
+
+    # 8 directions for adjacency based on patch size
+    directions = [
+        (-patch_size, -patch_size), (0, -patch_size), (patch_size, -patch_size),
+        (-patch_size, 0),                            (patch_size, 0),
+        (-patch_size, patch_size), (0, patch_size), (patch_size, patch_size),
+    ]
+
+    adj = np.zeros((N, N), dtype=np.uint8)
+
+    for i, (x, y) in enumerate(coords):
+        for dx, dy in directions:
+            neighbor = (x + dx, y + dy)
+            j = coord_to_index.get(neighbor)
+            if j is not None:
+                adj[i, j] = 1
+                adj[j, i] = 1  # 対称にする
+
+    return torch.from_numpy(adj).float().cuda()
+
+
+def visualize_patch_grid(coords, adj, wsi, patch_size=512, patch_level=0, max_examples=3, neighbor_n=5):
+    adj = adj.cpu().numpy()
+    neighbor_counts = adj.sum(axis=1)
+    target_indices = np.where(neighbor_counts == neighbor_n)[0]  # center patch
+
+    # make coordinate to index mapping
+    coord_dict = {tuple(coord): idx for idx, coord in enumerate(coords)}
+
+    directions = [
+        (-1, -1), ( 0, -1), ( 1, -1),
+        (-1,  0), ( 0,  0), ( 1,  0),
+        (-1,  1), ( 0,  1), ( 1,  1)
+    ]
+
+    for count, center_idx in enumerate(target_indices):
+        if count >= max_examples:
+            break
+
+        center_coord = tuple(coords[center_idx])
+        print(f"\n🧩 Center index: {center_idx}, coord: {center_coord}")
+
+        fig, axs = plt.subplots(3, 3, figsize=(9, 9))
+        axs = axs.reshape(3, 3)
+
+        for dx, dy in directions:
+            rel_x = dx * patch_size
+            rel_y = dy * patch_size
+            neighbor_coord = (center_coord[0] + rel_x, center_coord[1] + rel_y)
+            ax = axs[dy + 1][dx + 1] 
+
+            if neighbor_coord in coord_dict:
+                idx = coord_dict[neighbor_coord]
+                img = wsi.read_region(neighbor_coord, patch_level, (patch_size, patch_size)).convert('RGB')
+                ax.imshow(img)
+                ax.set_title(f"{neighbor_coord}")
+            else:
+                ax.set_facecolor("lightgray")
+                ax.set_title("Missing")
+
+            ax.axis('off')
+
+        plt.suptitle(f"Center patch at {center_coord} (index {center_idx})")
+        plt.tight_layout()
+        plt.show()

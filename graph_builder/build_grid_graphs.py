@@ -32,8 +32,15 @@ class CLAMGraphBuilder():
 
         self.patch_files = sorted(glob(os.path.join(patch_dir, 'patches/*.h5')))
         self.feature_files = sorted(glob(os.path.join(feature_dir, 'h5_files/*.h5')))
-        self.qc_info_files = sorted(glob(os.path.join(qc_info_dir, 'qc_info*.h5')))
-        self.wsi_files = sorted(glob(os.path.join(wsi_dir, '*.svs')))
+        self.qc_info_files = sorted(glob(os.path.join(qc_info_dir, '*.h5')))
+        wsi_pattern = os.path.join(wsi_dir, '**', '*.svs')
+        self.wsi_files = glob(wsi_pattern, recursive=True)
+
+        print(f"Found {len(self.patch_files)} patch files.")
+        print(f"Found {len(self.feature_files)} feature files.")
+        print(f"Found {len(self.qc_info_files)} QC info files.")
+        print(f"Found {len(self.wsi_files)} WSI files.")
+
 
     def build_graphs(self, patch_size=512, patch_level=0):
         graphs = []
@@ -43,20 +50,30 @@ class CLAMGraphBuilder():
             patch_path = os.path.join(self.patch_dir, 'patches', f'{file_name}.h5')
             feature_path = os.path.join(self.feature_dir, 'h5_files', f'{file_name}.h5')
             qc_info_path = os.path.join(self.qc_info_dir, f'{file_name}_qc_info.h5')
-            wsi_path = os.path.join(self.wsi_dir, f'{file_name}.svs')
+            wsi_path_candidates = [p for p in self.wsi_files if os.path.splitext(os.path.basename(p))[0] == file_name]
+            if len(wsi_path_candidates) == 0:
+                print(f"WSI file not found for {file_name}, skipping...")
+                continue
+            if len(wsi_path_candidates) > 1:
+                print(f"Multiple WSI files found for {file_name}, using the first one.")
 
+            wsi_path = wsi_path_candidates[0]
             wsi = openslide.open_slide(wsi_path)
 
-            with h5py.File(qc_info_path, 'r') as qc_info:
-                passed_ids = qc_info['passed_ids'][:]
-                bkg_scores = qc_info['bkg_scores'][:]
+            try:
+                with h5py.File(qc_info_path, 'r') as qc_info:
+                    passed_ids = qc_info['passed_ids'][:]
+                    bkg_scores = qc_info['bkg_scores'][:]
 
-            with h5py.File(feature_path, 'r') as h5:
-                coords = h5['coords'][:]
-                features = h5['features'][:]
+                with h5py.File(feature_path, 'r') as h5:
+                    coords = h5['coords'][:]
+                    features = h5['features'][:]
 
-            if len(passed_ids) == 0:
-                print(f"No passed patches for {file_name}, skipping...")
+                if len(passed_ids) == 0:
+                    print(f"No passed patches for {file_name}, skipping...")
+                    continue
+            except:
+                print(f"Error reading files for {file_name}, skipping...")
                 continue
 
             passed_coords = coords[passed_ids]

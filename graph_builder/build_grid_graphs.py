@@ -23,7 +23,7 @@ import torch
 
 
 class CLAMGraphBuilder():
-    def __init__(self, patch_dir, feature_dir, qc_info_dir, wsi_dir, save_dir):
+    def __init__(self, patch_dir, feature_dir, qc_info_dir, wsi_dir, save_dir, do_qc=True):
         self.patch_dir = patch_dir
         self.feature_dir = feature_dir
         self.qc_info_dir = qc_info_dir
@@ -35,14 +35,16 @@ class CLAMGraphBuilder():
         self.qc_info_files = sorted(glob(os.path.join(qc_info_dir, '*.h5')))
         wsi_pattern = os.path.join(wsi_dir, '**', '*.svs')
         self.wsi_files = glob(wsi_pattern, recursive=True)
+        self.do_qc = do_qc
 
         print(f"Found {len(self.patch_files)} patch files.")
         print(f"Found {len(self.feature_files)} feature files.")
         print(f"Found {len(self.qc_info_files)} QC info files.")
         print(f"Found {len(self.wsi_files)} WSI files.")
+        print(f"QC: {self.do_qc}")
 
 
-    def build_graphs(self, patch_size=512, patch_level=0):
+    def build_graphs(self, patch_size=512):
         graphs = []
 
         file_names = [t.split('/')[-1].split('.')[0] for t in self.patch_files]
@@ -61,13 +63,17 @@ class CLAMGraphBuilder():
             wsi = openslide.open_slide(wsi_path)
 
             try:
-                with h5py.File(qc_info_path, 'r') as qc_info:
-                    passed_ids = qc_info['passed_ids'][:]
-                    bkg_scores = qc_info['bkg_scores'][:]
-
                 with h5py.File(feature_path, 'r') as h5:
                     coords = h5['coords'][:]
                     features = h5['features'][:]
+                
+                if self.do_qc:
+                    with h5py.File(qc_info_path, 'r') as qc_info:
+                        passed_ids = qc_info['passed_ids'][:]
+                        bkg_scores = qc_info['bkg_scores'][:]
+                else:
+                    passed_ids = np.arange(coords.shape[0])
+                    assert len(passed_ids) == features.shape[0], "QC not applied, all patches should be passed."
 
                 if len(passed_ids) == 0:
                     print(f"No passed patches for {file_name}, skipping...")
@@ -75,6 +81,8 @@ class CLAMGraphBuilder():
             except:
                 print(f"Error reading files for {file_name}, skipping...")
                 continue
+
+            assert coords.shape[0] == features.shape[0]
 
             passed_coords = coords[passed_ids]
             passed_features = features[passed_ids]

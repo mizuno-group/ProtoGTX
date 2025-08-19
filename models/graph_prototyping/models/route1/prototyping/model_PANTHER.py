@@ -46,7 +46,7 @@ class PANTHER(nn.Module):
     
     def predict(self, data_loader, use_cuda=True):
         if self.mode == 'classification':
-            output, y = predict_clf(self, data_loader.dataset, use_cuda=use_cuda)
+            output, y, coords = predict_clf(self, data_loader.dataset, use_cuda=use_cuda)
         elif self.mode == 'survival':
             output, y = predict_surv(self, data_loader.dataset, use_cuda=use_cuda)
         elif self.mode == 'emb':
@@ -55,4 +55,4 @@ class PANTHER(nn.Module):
         else:
             raise NotImplementedError(f"Not implemented for {self.mode}!")
         
-        return output, y
+        return output, y, coords

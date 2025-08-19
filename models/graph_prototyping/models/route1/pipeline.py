@@ -3,6 +3,7 @@
 Created on 2025-08-18 (Mon) 22:56:39
 
 1. PANTHERの実行によるプロトタイプ特徴量の取得
+- coords情報を保持するように改良
 
 @author: I.Azuma
 """
@@ -73,7 +74,7 @@ parser.add_argument('--target_col', type=str, default='label')
 parser.add_argument('--split_dir', type=str, default=BASE_DIR+'/workspace3/new_model_dev/250818_graph_prototyping/route1/split_info')
 parser.add_argument('--split_names', type=str, default='train,val,test',
                     help='delimited list for specifying names within each split')
-parser.add_argument('--overwrite', action='store_true', default=False,
+parser.add_argument('--overwrite', action='store_true', default=True,  # FIXME
                     help='overwrite existing results')
 
 # logging args ###

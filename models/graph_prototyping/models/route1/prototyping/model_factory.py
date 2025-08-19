@@ -134,7 +134,6 @@ def prepare_emb(datasets, args, mode='classification'):
     """
     Slide representation construction with patch feature aggregation trained in unsupervised manner
     """
-   
     ### Preparing file path for saving embeddings
     print('\nConstructing unsupervised slide embedding...', end=' ')
     embeddings_kwargs = {
@@ -170,11 +169,11 @@ def prepare_emb(datasets, args, mode='classification'):
         embeddings = {}
         for split, loader in datasets.items():
             print(f"\nAggregating {split} set features...")
-            X, y = model.predict(loader,
+            X, y, coords = model.predict(loader,
                                  use_cuda=torch.cuda.is_available()
                                  )
-            loader.dataset.X, loader.dataset.y = X, y
-            embeddings[split] = {'X': X, 'y': y}
+            loader.dataset.X, loader.dataset.y, loader.dataset.coords = X, y, coords
+            embeddings[split] = {'X': X, 'y': y, 'coords': coords}
         save_pkl(embeddings_fpath, embeddings)
 
     return datasets, embeddings_fpath

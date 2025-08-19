@@ -83,12 +83,13 @@ def predict_clf(self, dataset, use_cuda=True, permute=False):
     - y (torch.Tensor): (n_data)
     """
 
-    X, y = [], []
+    X, y, coords = [], [], []
 
     for i in tqdm(range(len(dataset))):
         batch = dataset.__getitem__(i)
         data = batch['img'].unsqueeze(dim=0)
         label = batch['label']
+        coord = batch['coords']
         if use_cuda:
             data = data.cuda()
         
@@ -98,11 +99,15 @@ def predict_clf(self, dataset, use_cuda=True, permute=False):
 
         X.append(out)
         y.append(label)
+        coords.append(coord)
 
     X = torch.cat(X)
     y = torch.Tensor(y).to(torch.long)
+    # tensorに変換してからcat
+    coords = [torch.tensor(c) for c in coords]
+    coords = torch.cat(coords)
 
-    return X, y
+    return X, y, coords
 
 def process_clf(logits, label, loss_fn):
     results_dict = {'logits': logits}

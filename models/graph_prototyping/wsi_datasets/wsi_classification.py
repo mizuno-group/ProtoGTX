@@ -50,6 +50,7 @@ class WSIClassificationDataset(Dataset):
         self.data_df[slide_col] = self.data_df[slide_col].astype(str)
         self.X = None
         self.y = None
+        self.coords = None
 
         self.validate_classification_dataset()
 
@@ -143,7 +144,7 @@ class WSIClassificationDataset(Dataset):
 
     def __getitem__from_emb__(self, idx):
         out = {'img': self.X[idx],
-               'coords': [],
+               'coords': [],  #self.coords if self.coords is not None else [],
                'label': torch.Tensor([self.labels[idx]])}
 
         return out
@@ -178,6 +179,8 @@ class WSIClassificationDataset(Dataset):
 
         # apply sampling if needed, return attention mask if sampling is applied else None
         all_features, all_coords, attn_mask = apply_sampling(self.bag_size, all_features, all_coords)
+
+        self.all_coords = all_coords  # register
 
         out = {'img': all_features,
                'coords': all_coords,

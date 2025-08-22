@@ -53,6 +53,10 @@ class DirNIWNet(nn.Module):
         self.load_proto = load_proto
         self.eps = eps
 
+        print("load_proto:", self.load_proto)
+        print("proto_path:", proto_path)
+        print("fix_proto:", fix_proto)
+
         if self.load_proto:
             if proto_path.endswith('pkl'):
                 weights = load_pkl(proto_path)['prototypes'].squeeze()
@@ -132,4 +136,3 @@ class DirNIWNet(nn.Module):
 
         if self.load_proto:
             print("Prototypes are already loaded")
-    

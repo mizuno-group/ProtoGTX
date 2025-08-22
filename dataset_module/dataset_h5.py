@@ -13,7 +13,6 @@ from PIL import Image
 
 import torch
 from torch.utils.data import Dataset
-from torch.utils.data import DataLoader
 from torchvision.transforms import ToTensor
 from torchvision.transforms.functional import rgb_to_grayscale
 

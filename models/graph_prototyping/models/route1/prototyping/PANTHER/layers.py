@@ -27,7 +27,7 @@ class PANTHERBase(nn.Module):
         self.tau = tau
         self.out = out
         self.H = 1  # This is a dummy variable - Originally intended for multihead. Always keep it at 1
-
+        
         self.priors = DirNIWNet(p, d, ot_eps, load_proto, proto_path, fix_proto)
 
         if out == 'allcat':  # Concatenates pi, mu, cov - This is the default mode for PANTHER used in the paper

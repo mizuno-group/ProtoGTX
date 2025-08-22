@@ -12,7 +12,7 @@ import torch
 from torch.utils.data import DataLoader, sampler
 
 sys.path.append(BASE_DIR+'/github/PathoGraphX/models/graph_prototyping')
-from wsi_datasets import WSIClassificationDataset
+from wsi_datasets import WSIClassificationDataset, WSIProtoDataset
 
 def build_sampler(dataset, sampler_type=None):
     data_sampler = None
@@ -34,7 +34,7 @@ def build_sampler(dataset, sampler_type=None):
 
     return data_sampler
 
-def build_datasets(csv_splits, model_type, batch_size=1, num_workers=1,
+def build_clf_datasets(csv_splits, batch_size=1, num_workers=1,
                    train_kwargs={}, val_kwargs={}, sampler_types={'train': 'random',
                                                                   'val': 'sequential',
                                                                   'test': 'sequential'}):
@@ -54,4 +54,18 @@ def build_datasets(csv_splits, model_type, batch_size=1, num_workers=1,
         dataloader = DataLoader(dataset, batch_size=batch_size, sampler=data_sampler, num_workers=num_workers)
         dataset_splits[k] = dataloader
         print(f'split: {k}, n: {len(dataset)}')
+    return dataset_splits
+
+def build_proto_datasets(csv_splits, batch_size=1, num_workers=1, train_kwargs={}):
+    dataset_splits = {}
+    for k in csv_splits.keys(): # ['train']
+        df = csv_splits[k]
+        dataset_kwargs = train_kwargs.copy()
+        dataset = WSIProtoDataset(df, **dataset_kwargs)
+
+        batch_size = 1
+        dataloader = DataLoader(dataset, batch_size=batch_size, num_workers=num_workers)
+        dataset_splits[k] = dataloader
+        print(f'split: {k}, n: {len(dataset)}')
+
     return dataset_splits

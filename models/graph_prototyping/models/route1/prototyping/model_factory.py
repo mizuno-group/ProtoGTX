@@ -74,6 +74,7 @@ def create_downstream_model(args, mode='classification'):
     
     model_config = args.model_config
     model_type = args.model_type
+    emb_model_type = args.emb_model_type
 
     if 'IndivMLPEmb' in model_config:
         update_dict = {'in_dim': args.in_dim,
@@ -102,25 +103,25 @@ def create_downstream_model(args, mode='classification'):
     else:
         raise NotImplementedError(f"Not implemented for {mode}...")
     
-    if model_type == 'ABMIL':
+    if emb_model_type == 'ABMIL':
         config = ABMILConfig.from_pretrained(config_path, update_dict=update_dict)
         model = ABMIL(config=config, mode=mode)
     # Prototype-based models will choose from the following
-    elif model_type == 'LinearEmb':
+    elif emb_model_type == 'LinearEmb':
         config = LinearEmbConfig.from_pretrained(config_path, update_dict=update_dict)
         model = LinearEmb(config=config, mode=mode)
-    elif 'IndivMLPEmb' in model_type:            
-        if 'IndivMLPEmb_Shared' == model_type:
+    elif 'IndivMLPEmb' in emb_model_type:            
+        if 'IndivMLPEmb_Shared' == emb_model_type:
             config = IndivMLPEmbConfig_Shared.from_pretrained(config_path, update_dict=update_dict)
-        elif 'IndivMLPEmb_Indiv' == model_type:
+        elif 'IndivMLPEmb_Indiv' == emb_model_type:
             config = IndivMLPEmbConfig_Indiv.from_pretrained(config_path, update_dict=update_dict)
-        elif 'IndivMLPEmb_SharedPost' == model_type:
+        elif 'IndivMLPEmb_SharedPost' == emb_model_type:
             config = IndivMLPEmbConfig_SharedPost.from_pretrained(config_path, update_dict=update_dict)
-        elif 'IndivMLPEmb_IndivPost' == model_type:
+        elif 'IndivMLPEmb_IndivPost' == emb_model_type:
             config = IndivMLPEmbConfig_IndivPost.from_pretrained(config_path, update_dict=update_dict)
-        elif 'IndivMLPEmb_SharedIndiv' == model_type:
+        elif 'IndivMLPEmb_SharedIndiv' == emb_model_type:
             config = IndivMLPEmbConfig_SharedIndiv.from_pretrained(config_path, update_dict=update_dict)
-        elif 'IndivMLPEmb_SharedIndivPost' == model_type:
+        elif 'IndivMLPEmb_SharedIndivPost' == emb_model_type:
             config = IndivMLPEmbConfig_SharedIndivPost.from_pretrained(config_path, update_dict=update_dict)
         
         model = IndivMLPEmb(config=config, mode=mode)
@@ -155,7 +156,7 @@ def prepare_emb(datasets, args, mode='classification'):
     embeddings_fpath = j_(args.split_dir, 'embeddings', fpath+'.pkl')
     
     ### Load existing embeddings if already created
-    if os.path.isfile(embeddings_fpath):
+    if os.path.isfile(embeddings_fpath) and not args.overwrite:
         embeddings = load_pkl(embeddings_fpath)
         for k, loader in datasets.items():
             print(f'\n\tEmbedding already exists! Loading {k}', end=' ')

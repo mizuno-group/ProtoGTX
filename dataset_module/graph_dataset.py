@@ -146,8 +146,8 @@ class ConcatGraphDataset(data.Dataset):
                 │   └── adj_s.pt
                 └── ...
         root2/
-        ├── graph1_features.npy
-        ├── graph2_features.npy
+        ├── graph1_features.pt
+        ├── graph2_features.pt
         └── ...
         """
         super(ConcatGraphDataset, self).__init__()
@@ -177,23 +177,14 @@ class ConcatGraphDataset(data.Dataset):
         sample: dict[str, Any] = {}
         sample['label'] = self.classdict[label] if (self.classdict is not None) else int(label)
         sample['id'] = graph_file
-
-        # 1. CLAM-based features
-        feature_path = os.path.join(self.root, graph_file, f'features_{graph_file}.pt')
+        
+        # Concat features
+        feature_path = os.path.join(self.root2, f'{graph_file}_concat.pt')
         if os.path.exists(feature_path):
             features = torch.load(feature_path, map_location='cpu')
         else:
             raise FileNotFoundError(f'features.pt for {graph_file} doesn\'t exist')
-        
-        # 2. Prototype-based features
-        feature_path2 = os.path.join(self.root2, f'{graph_file}_qq.npy')
-        if os.path.exists(feature_path2):
-            features2 = np.load(feature_path2)
-            features2 = torch.from_numpy(features2)
-        else:
-            raise FileNotFoundError(f'features.npy for {graph_file} doesn\'t exist')
 
-        assert features.shape[0] == features2.shape[0], "Mismatch in number of samples"
 
         adj_s_path = os.path.join(self.root, graph_file, f'adj_s_{graph_file}.pt')
         if os.path.exists(adj_s_path):
@@ -205,8 +196,7 @@ class ConcatGraphDataset(data.Dataset):
             adj_s = adj_s.to_dense()
 
         # concatenate
-        concat_features = torch.cat([features, features2], dim=1)
-        sample['image'] = concat_features
+        sample['image'] = features
         sample['adj_s'] = adj_s
 
         return sample

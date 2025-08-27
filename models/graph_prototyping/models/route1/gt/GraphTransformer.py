@@ -16,7 +16,7 @@ from .gcn import GCNBlock
 from torch_geometric.nn import GCNConv, DenseGraphConv, dense_mincut_pool
 from torch.nn import Linear
 class Classifier(nn.Module):
-    def __init__(self, n_class, n_features: int = 512):
+    def __init__(self, n_class, n_features: int = 512, save_dir=''):
         super(Classifier, self).__init__()
 
         self.embed_dim = 64
@@ -31,7 +31,8 @@ class Classifier(nn.Module):
         self.add_self = 1
         self.normalize_embedding = 1
         self.conv1 = GCNBlock(n_features,self.embed_dim,self.bn,self.add_self,self.normalize_embedding,0.,0)       # 64->128
-        self.pool1 = Linear(self.embed_dim, self.node_cluster_num)                                          # 100-> 20
+        self.pool1 = Linear(self.embed_dim, self.node_cluster_num)  # 100-> 20
+        self.save_dir = save_dir
 
 
     def forward(self,node_feat,labels,adj,mask,is_print=False, graphcam_flag=False):
@@ -55,15 +56,16 @@ class Classifier(nn.Module):
         if graphcam_flag:
             s_matrix = torch.argmax(s[0], dim=1)
             from os import path
-            os.makedirs('graphcam', exist_ok=True)
-            torch.save(s_matrix, path.join('graphcam', 's_matrix.pt'))
-            torch.save(s[0], path.join('graphcam', 's_matrix_ori.pt'))
-            
-            if path.exists(path.join('graphcam', 'att_1.pt')):
-                os.remove(path.join('graphcam', 'att_1.pt'))
-                os.remove(path.join('graphcam', 'att_2.pt'))
-                os.remove(path.join('graphcam', 'att_3.pt'))
-    
+            save_folder = self.save_dir+'/graphcam'
+            os.makedirs(save_folder, exist_ok=True)
+            torch.save(s_matrix, path.join(save_folder, 's_matrix.pt'))
+            torch.save(s[0], path.join(save_folder, 's_matrix_ori.pt'))
+
+            if path.exists(path.join(save_folder, 'att_1.pt')):
+                os.remove(path.join(save_folder, 'att_1.pt'))
+                os.remove(path.join(save_folder, 'att_2.pt'))
+                os.remove(path.join(save_folder, 'att_3.pt'))
+
         X, adj, mc1, o1 = dense_mincut_pool(X, adj, s, mask)
         b, _, _ = X.shape
         cls_token = self.cls_token.repeat(b, 1, 1)
@@ -80,7 +82,7 @@ class Classifier(nn.Module):
         if graphcam_flag:
             print('GraphCAM enabled')
             p = F.softmax(out)
-            torch.save(p, path.join('graphcam', 'prob.pt'))
+            torch.save(p, path.join(save_folder, 'prob.pt'))
             index = np.argmax(out.cpu().data.numpy(), axis=-1)
 
             for index_ in range(p.size(1)):
@@ -96,6 +98,6 @@ class Classifier(nn.Module):
                 cam = self.transformer.relprop(torch.tensor(one_hot_vector).to(X.device), method="transformer_attribution", is_ablation=False, 
                                             start_layer=0, **kwargs)
 
-                torch.save(cam, path.join('graphcam', 'cam_{}.pt'.format(index_)))
+                torch.save(cam, path.join(save_folder, 'cam_{}.pt'.format(index_)))
 
         return pred,labels,loss

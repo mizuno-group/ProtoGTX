@@ -72,7 +72,7 @@ assert os.path.isdir(args.split_dir)
 def seed_torch(seed=42):
     import random
     random.seed(seed)
-    os.environ['PYTHONHASHSEED'] = str(seed)
+    os.environ['PYTHONHASHSEED'] = str(seed)   
     np.random.seed(seed)
     torch.manual_seed(seed)
     if device.type == 'cuda':

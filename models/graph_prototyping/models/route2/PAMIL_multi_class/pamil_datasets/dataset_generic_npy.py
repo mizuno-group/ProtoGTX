@@ -1,6 +1,7 @@
 from __future__ import print_function, division
 import os
-import torch
+
+import h5py
 import numpy as np
 import pandas as pd
 import math
@@ -9,8 +10,8 @@ import pdb
 import pickle
 from scipy import stats
 
+import torch
 from torch.utils.data import Dataset
-import h5py
 from torch.utils.data import DataLoader, Sampler, WeightedRandomSampler, RandomSampler, SequentialSampler, sampler
 from utils.utils import generate_split, nth, make_weights_for_balanced_classes_split
 
@@ -61,6 +62,7 @@ class Generic_WSI_Classification_Dataset(Dataset):
         self.patient_strat = patient_strat
         self.train_ids, self.val_ids, self.test_ids  = (None, None, None)
         self.data_dir = None
+
         if not label_col:
             label_col = 'label'
         self.label_col = label_col
@@ -317,13 +319,13 @@ class Generic_WSI_Classification_Dataset(Dataset):
         df.to_csv(filename, index = False)
 
 
-class Generic_MIL_Dataset(Generic_WSI_Classification_Dataset):
+class Generic_MIL_Dataset_legacy(Generic_WSI_Classification_Dataset):
     def __init__(self,
         data_dir,
         data_mag,
         **kwargs):
 
-        super(Generic_MIL_Dataset, self).__init__(**kwargs)
+        super(Generic_MIL_Dataset_legacy, self).__init__(**kwargs)
         
         self.data_dir = data_dir
         self.data_mag = data_mag
@@ -356,12 +358,58 @@ class Generic_MIL_Dataset(Generic_WSI_Classification_Dataset):
 
         return features, label, coords, inst_label, slide_id
 
+class Generic_MIL_Dataset(Generic_WSI_Classification_Dataset):
+    def __init__(self,
+        data_dir,
+        data_mag,
+        **kwargs):
+
+        super(Generic_MIL_Dataset, self).__init__(**kwargs)
+        
+        self.data_dir = data_dir
+        self.data_mag = data_mag
+
+        self.data_source = []
+        for src in self.data_dir:
+            assert os.path.basename(src) in ['feats_h5', 'feats_pt']
+            self.use_h5 = True if os.path.basename(src) == 'feats_h5' else False
+            self.data_source.append(src)
+
+    def __getitem__(self, idx):
+        slide_id = self.slide_data['slide_id'][idx].split('.svs')[0]
+        label = self.slide_data['label'][idx]
+        data_dir = self.data_dir
+
+        paths = [os.path.join(src, f"{slide_id}.h5") for src in self.data_source]
+        record = [h5py.File(p, "r") for p in paths if os.path.isfile(p)]
+        assert len(record)==1, f"Duplicate or missing data found for slide {slide_id} in {data_dir}"
+
+        features = record[0]['features'][:]
+
+        if type(features) is not torch.Tensor:
+            features = torch.from_numpy(features)     
+        # features = features.reshape(features.shape[0]*features.shape[1], features.shape[-1])
+
+        coords = record[0]['coords'][:]
+        
+        # if 'inst_label' in record[()].keys():
+        #     inst_label = record[()]['inst_label']
+        # else:
+        #     inst_label = []
+
+        return features, label, coords, slide_id
+
 
 class Generic_Split(Generic_MIL_Dataset): 
     def __init__(self, slide_data, data_dir=None, data_mag=None, num_classes=2):
         
         self.slide_data = slide_data
         self.data_dir = data_dir
+        self.data_source = []
+        for src in self.data_dir:
+            assert os.path.basename(src) in ['feats_h5', 'feats_pt']
+            self.use_h5 = True if os.path.basename(src) == 'feats_h5' else False
+            self.data_source.append(src)
         self.num_classes = num_classes
         self.data_mag = data_mag
         self.slide_cls_ids = [[] for i in range(self.num_classes)]
@@ -375,15 +423,15 @@ def collate_MIL(batch):
     img = torch.cat([item[0] for item in batch], dim = 0)
     label = torch.LongTensor([item[1] for item in batch])
     coords = [item[2] for item in batch]
-    inst_label = [item[3] for item in batch]
-    slide_id = [item[4] for item in batch]
-    return [img, label, coords, inst_label, slide_id]
+    #inst_label = [item[3] for item in batch]
+    slide_id = [item[3] for item in batch]
+    return [img, label, coords, slide_id]
 
 def get_split_loader(split_dataset, training = False, testing = False, weighted = False):
     """
 		return either the validation loader or training loader 
 	"""
-    kwargs = {'num_workers': 4} if device.type == "cuda" else {}
+    kwargs = {'num_workers': 0} if device.type == "cuda" else {}  # FIXME
     if testing:
         ids = np.random.choice(np.arange(len(split_dataset), int(len(split_dataset)*0.1)), replace = False)
         loader = DataLoader(split_dataset, batch_size=1, sampler = SubsetSequentialSampler(ids), collate_fn = collate_MIL, **kwargs )

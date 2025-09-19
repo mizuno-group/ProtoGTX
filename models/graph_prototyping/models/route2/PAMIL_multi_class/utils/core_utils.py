@@ -1,23 +1,24 @@
 BASE_DIR = '/workspace/cluster/HDD/azuma/Pathology_Graph'
-import sys
-sys.path.append(f'{BASE_DIR}/github/PAMIL/PAMIL_multi_class')
 
-
-import numpy as np
-import torch
-from utils.utils import *
-from utils.train_utils import *
 import os
+import numpy as np
+
+from tqdm import tqdm
+from sklearn.preprocessing import label_binarize
+from sklearn.metrics import auc as calc_auc
+from sklearn.metrics import roc_auc_score, roc_curve, accuracy_score, classification_report
+
+import torch
 import torch.nn as nn
+import torch.nn.functional as F
+
+import sys
+sys.path.append(f'{BASE_DIR}/github/PathoGraphX/models/graph_prototyping/models/route2/PAMIL_multi_class')
 from pamil_datasets.dataset_generic import save_splits
 from pamil_datasets.dataset_generic_npy import get_split_loader
 from models.model_protoattention import PAMIL, push
-from sklearn.preprocessing import label_binarize
-from sklearn.metrics import roc_auc_score, roc_curve, accuracy_score, classification_report
-from sklearn.metrics import auc as calc_auc
-import torch.nn.functional as F
-
-# torch.multiprocessing.set_start_method('spawn', force=True)
+from utils.utils import *
+from utils.train_utils import *
 
 configs = get_settings()
 
@@ -264,7 +265,6 @@ def train_loop_pamil(epoch, model, loader, optimizer, n_classes, args, writer = 
     device=torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.train()
     acc_logger = Accuracy_Logger(n_classes=n_classes)
-    inst_logger = Accuracy_Logger(n_classes=n_classes)
     
     train_loss = 0.
     train_error = 0.
@@ -274,8 +274,8 @@ def train_loop_pamil(epoch, model, loader, optimizer, n_classes, args, writer = 
     all_inst_label = []
     all_inst_score = []
     print('\n')
-    for batch_idx, (data, label, cors, inst_label, _) in enumerate(loader):
-        
+    #for batch_idx, (data, label, cors, inst_label, _) in enumerate(loader):
+    for batch_idx, (data, label, cors, _) in tqdm(enumerate(loader)):
         data, label = data.to(device), label.to(device)
         label_bn = torch.zeros(n_classes)
         label_bn[label.long()] = 1
@@ -283,13 +283,12 @@ def train_loop_pamil(epoch, model, loader, optimizer, n_classes, args, writer = 
         
         logits, Y_prob, Y_hat, instance_dict = model(data, inst_pred=args.inst_pred, label=label)
         Y_prob = Y_prob.squeeze(0)
-        inst_label = inst_label[0]
         score = instance_dict['A_raw'].T
 
-        if inst_label!=[]:
+        """if inst_label!=[]:
             all_inst_label += inst_label
             inst_score = score.detach().cpu().numpy()
-            all_inst_score.append(inst_score)
+            all_inst_score.append(inst_score)"""
 
         acc_logger.log(Y_hat, label)
         
@@ -345,9 +344,10 @@ def train_loop_pamil(epoch, model, loader, optimizer, n_classes, args, writer = 
     train_inst_loss /= len(loader)  # v15
     train_error /= len(loader)
     
+
+    """
     # cal inst_auc and inst_acc
     all_inst_score = np.concatenate(all_inst_score)
-
     # inst_acc
     for class_idx in range(n_classes):
         inst_score = all_inst_score[:, class_idx]
@@ -376,9 +376,10 @@ def train_loop_pamil(epoch, model, loader, optimizer, n_classes, args, writer = 
             inst_aucs.append(calc_auc(fpr, tpr))
         else:
             inst_aucs.append(float('nan'))
-    inst_auc = np.nanmean(np.array(inst_aucs))
+    inst_auc = np.nanmean(np.array(inst_aucs))"""
 
-    print('Epoch: {}, train_loss: {:.4f}, train_error: {:.4f}, inst_auc: {:.4f}'.format(epoch, train_loss, train_error, inst_auc))
+    #print('Epoch: {}, train_loss: {:.4f}, train_error: {:.4f}, inst_auc: {:.4f}'.format(epoch, train_loss, train_error, inst_auc))
+    print('Epoch: {}, train_loss: {:.4f}, train_error: {:.4f}'.format(epoch, train_loss, train_error))
     for i in range(n_classes):
         acc, correct, count= acc_logger.get_summary(i)
         print(f'class {i}: acc {acc}, correct {correct}/{count}')
@@ -388,8 +389,8 @@ def train_loop_pamil(epoch, model, loader, optimizer, n_classes, args, writer = 
     if writer:
         writer.add_scalar('train/loss', train_loss, epoch)
         writer.add_scalar('train/error', train_error, epoch)
-        writer.add_scalar('train/inst_auc', inst_auc, epoch)
-        
+        #writer.add_scalar('train/inst_auc', inst_auc, epoch)
+
 
 def validate_pamil(cur, epoch, model, loader, n_classes, args, early_stopping = None, writer = None, loss_fn = None, results_dir = None):
     device=torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -409,7 +410,8 @@ def validate_pamil(cur, epoch, model, loader, n_classes, args, early_stopping = 
     labels = np.zeros((len(loader),n_classes))
     
     with torch.no_grad():
-        for batch_idx, (data, label, cors, inst_label, _) in enumerate(loader):
+        #for batch_idx, (data, label, cors, inst_label, _) in enumerate(loader):
+        for batch_idx, (data, label, cors, _) in tqdm(enumerate(loader)):
             data, label = data.to(device), label.to(device)
             label_bn = torch.zeros(n_classes)
             label_bn[label.long()] = 1
@@ -417,13 +419,14 @@ def validate_pamil(cur, epoch, model, loader, n_classes, args, early_stopping = 
             
             logits, Y_prob, Y_hat, instance_dict = model(data, inst_pred=False)
             Y_prob=Y_prob.squeeze(0)
-            inst_label = inst_label[0]
+            #inst_label = inst_label[0]
+            inst_label = 0  # dummy
             score = instance_dict['A_raw'].T
             
-            if inst_label!=[]:
+            """if inst_label!=[]:
                 all_inst_label += inst_label
                 inst_score = score.detach().cpu().numpy()
-                all_inst_score.append(inst_score)
+                all_inst_score.append(inst_score)"""
                 
             acc_logger.log(Y_hat, label)
             
@@ -447,9 +450,11 @@ def validate_pamil(cur, epoch, model, loader, n_classes, args, early_stopping = 
     val_error /= len(loader)
     val_loss /= len(loader)
     
+    
+    """
     # cal inst_auc and inst_acc
-    # inst_acc
     all_inst_score = np.concatenate(all_inst_score)
+    # inst_acc
     for class_idx in range(n_classes):
         inst_score = all_inst_score[:, class_idx]
         inst_score = list((inst_score-inst_score.min())/(inst_score.max()-inst_score.min()+1e-5))
@@ -477,7 +482,7 @@ def validate_pamil(cur, epoch, model, loader, n_classes, args, early_stopping = 
             inst_aucs.append(calc_auc(fpr, tpr))
         else:
             inst_aucs.append(float('nan'))
-    inst_auc = np.nanmean(np.array(inst_aucs))
+    inst_auc = np.nanmean(np.array(inst_aucs))"""
     
     aucs = []
     binary_labels = labels # label_binarize(labels, classes=[i for i in range(n_classes)])
@@ -491,7 +496,8 @@ def validate_pamil(cur, epoch, model, loader, n_classes, args, early_stopping = 
 
     auc = np.nanmean(np.array(aucs))
 
-    print('\nVal Set, val_loss: {:.4f}, val_error: {:.4f}, auc: {:.4f}, inst_auc: {:.4f}'.format(val_loss, val_error, auc, inst_auc))
+    #print('\nVal Set, val_loss: {:.4f}, val_error: {:.4f}, auc: {:.4f}, inst_auc: {:.4f}'.format(val_loss, val_error, auc, inst_auc))
+    print('\nVal Set, val_loss: {:.4f}, val_error: {:.4f}, auc: {:.4f}'.format(val_loss, val_error, auc))
     if inst_count > 0:
         val_inst_loss /= inst_count
         for i in range(2):
@@ -502,7 +508,7 @@ def validate_pamil(cur, epoch, model, loader, n_classes, args, early_stopping = 
         writer.add_scalar('val/loss', val_loss, epoch)
         writer.add_scalar('val/auc', auc, epoch)
         writer.add_scalar('val/error', val_error, epoch)
-        writer.add_scalar('val/inst_auc', inst_auc, epoch)
+        #writer.add_scalar('val/inst_auc', inst_auc, epoch)
 
 
     for i in range(n_classes):

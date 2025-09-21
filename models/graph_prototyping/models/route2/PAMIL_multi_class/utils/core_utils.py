@@ -102,6 +102,125 @@ class EarlyStopping:
         self.val_loss_min = val_loss
 
 
+def train_edit(datasets, cur, args):
+    """   
+        train for a single fold
+    """
+    print('\nTraining Fold {}!'.format(cur))
+    writer_dir = os.path.join(args.results_dir, str(cur))
+    if not os.path.isdir(writer_dir):
+        os.mkdir(writer_dir)
+
+    if args.log_data:
+        from tensorboardX import SummaryWriter
+        writer = SummaryWriter(writer_dir, flush_secs=15)
+
+    else:
+        writer = None
+        
+    print('\nInit loss function...', end=' ')
+    if args.bag_loss == 'svm':
+        from topk.svm import SmoothTop1SVM
+        loss_fn = SmoothTop1SVM(n_classes = args.n_classes)
+        if device.type == 'cuda':
+            loss_fn = loss_fn.cuda()
+    elif args.bag_loss == 'bce':
+        loss_fn = nn.functional.binary_cross_entropy
+    else:
+        loss_fn = nn.CrossEntropyLoss()
+    print('Done!')
+    
+    print('\nInit train/val/test splits...', end=' ')
+    train_split, val_split, test_split = datasets
+    save_splits(datasets, ['train', 'val', 'test'], os.path.join(args.results_dir, 'splits_{}.csv'.format(cur)))
+    print('Done!')
+    print("Training on {} samples".format(len(train_split)))
+    print("Validating on {} samples".format(len(val_split)))
+    print("Testing on {} samples".format(len(test_split)))
+    
+    print('\nInit Model...', end=' ')
+    model_dict = {"dropout": args.drop_out, 'n_classes': args.n_classes}
+    
+    if args.model_size is not None and args.model_type != 'mil':
+        model_dict.update({"size_arg": args.model_size})
+    
+
+    if args.model_type in ['PAMIL']:
+        model_dict.update({'n_protos': args.num_protos})
+        model_dict.update({'proto_path': os.path.join(args.proto_path, f'{args.task}_{args.num_protos}_{cur}', f'train_instance_feats_proto.npy')})
+        model_dict.update({'proto_pred': args.proto_pred})
+        model_dict.update({'proto_weight': args.proto_weight})
+        model_dict.update({'inst_pred': args.inst_pred})
+        model_dict.update({'k_sample': args.k_sample})
+        model = PAMIL(**model_dict)
+        
+    model.to(device)
+    print('Done!')
+    print_network(model)
+
+    print('\nInit optimizer ...', end=' ')
+    optimizer = get_optim(model, args)
+    print('Done!')
+    
+    print('\nInit Loaders...', end=' ')
+    train_loader = get_split_loader(train_split, training=True, testing = args.testing, weighted = args.weighted_sample)
+    val_loader = get_split_loader(val_split,  testing = args.testing)
+    test_loader = get_split_loader(test_split, testing = args.testing)
+    print('Done!')
+
+    print('\nSetup EarlyStopping...', end=' ')
+    if args.early_stopping:
+        early_stopping = EarlyStopping(patience = 20, stop_epoch=50, verbose = True)
+
+    else:
+        early_stopping = None
+    print('Done!')
+
+    if args.model_type in ['PAMIL']:
+        # init the mode for training
+        mode = TrainMode.WARM
+        for epoch in range(args.max_epochs):
+            if mode == TrainMode.WARM:
+                warm_only(model)
+                if epoch >= 2:
+                    mode = TrainMode.JOINT
+            elif mode == TrainMode.JOINT:
+                joint(model)
+            train_loop_pamil(epoch, model, train_loader, optimizer, args.n_classes, args, writer, loss_fn)
+            #stop = validate_pamil(cur, epoch, model, val_loader, args.n_classes, args, early_stopping, writer, loss_fn, args.results_dir)
+            if epoch >= configs.num_train_epochs:
+                break
+        
+    # save the final results
+    torch.save(model.state_dict(), os.path.join(args.results_dir, "s_{}_final_checkpoint.pt".format(cur)))
+    
+    if args.early_stopping:
+        model.load_state_dict(torch.load(os.path.join(args.results_dir, "s_{}_checkpoint.pt".format(cur))))
+    else:
+        torch.save(model.state_dict(), os.path.join(args.results_dir, "s_{}_checkpoint.pt".format(cur)))
+
+    _, val_error, val_auc, _= summary(model, val_loader, args.n_classes, args.model_type)
+    print('Val error: {:.4f}, ROC AUC: {:.4f}'.format(val_error, val_auc))
+
+    results_dict, test_error, test_auc, acc_logger = summary(model, test_loader, args.n_classes, args.model_type)
+    print('Test error: {:.4f}, ROC AUC: {:.4f}'.format(test_error, test_auc))
+    
+    for i in range(args.n_classes):
+        acc, correct, count = acc_logger.get_summary(i)  
+        print(f'class {i}: acc {acc}, correct {correct}/{count}')
+        if writer:
+            writer.add_scalar('final/test_class_{}_acc'.format(i), acc, 0)
+            
+    if writer:
+        writer.add_scalar('final/val_error', val_error, 0)
+        writer.add_scalar('final/val_auc', val_auc, 0)
+        #writer.add_scalar('final/val_iauc', val_iauc, 0)
+        writer.add_scalar('final/test_error', test_error, 0)
+        writer.add_scalar('final/test_auc', test_auc, 0)
+        #writer.add_scalar('final/test_iauc', test_iauc, 0)
+        writer.close()
+    return results_dict, test_auc, val_auc, 1-test_error, 1-val_error
+
 def train(datasets, cur, args):
     """   
         train for a single fold
@@ -238,10 +357,10 @@ def train(datasets, cur, args):
     else:
         torch.save(model.state_dict(), os.path.join(args.results_dir, "s_{}_checkpoint.pt".format(cur)))
 
-    _, val_error, val_auc, val_iauc, _= summary(model, val_loader, args.n_classes, args.model_type)
+    _, val_error, val_auc, _= summary(model, val_loader, args.n_classes, args.model_type)
     print('Val error: {:.4f}, ROC AUC: {:.4f}'.format(val_error, val_auc))
 
-    results_dict, test_error, test_auc, test_iauc, acc_logger = summary(model, test_loader, args.n_classes, args.model_type)
+    results_dict, test_error, test_auc, acc_logger = summary(model, test_loader, args.n_classes, args.model_type)
     print('Test error: {:.4f}, ROC AUC: {:.4f}'.format(test_error, test_auc))
     
     for i in range(args.n_classes):
@@ -253,12 +372,12 @@ def train(datasets, cur, args):
     if writer:
         writer.add_scalar('final/val_error', val_error, 0)
         writer.add_scalar('final/val_auc', val_auc, 0)
-        writer.add_scalar('final/val_iauc', val_iauc, 0)
+        #writer.add_scalar('final/val_iauc', val_iauc, 0)
         writer.add_scalar('final/test_error', test_error, 0)
         writer.add_scalar('final/test_auc', test_auc, 0)
-        writer.add_scalar('final/test_iauc', test_iauc, 0)
+        #writer.add_scalar('final/test_iauc', test_iauc, 0)
         writer.close()
-    return results_dict, test_auc, val_auc, 1-test_error, 1-val_error, test_iauc, val_iauc
+    return results_dict, test_auc, val_auc, 1-test_error, 1-val_error
 
 
 def train_loop_pamil(epoch, model, loader, optimizer, n_classes, args, writer = None, loss_fn=None):
@@ -530,6 +649,61 @@ def validate_pamil(cur, epoch, model, loader, n_classes, args, early_stopping = 
 
 
 def summary(model, loader, n_classes, model_type):
+    device=torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    acc_logger = Accuracy_Logger(n_classes=n_classes)
+    model.eval()
+    test_loss = 0.
+    test_error = 0.
+
+    all_probs = np.zeros((len(loader), n_classes))
+    all_labels = np.zeros((len(loader),n_classes))
+
+    slide_ids = loader.dataset.slide_data['slide_id']
+    patient_results = {}
+
+    for batch_idx, (data, label, cors, _) in enumerate(loader):
+        data, label = data.to(device), label.to(device)
+        label_bn = torch.zeros(n_classes)
+        label_bn[label.long()] = 1
+        label_bn = label_bn.to(device)
+        
+        slide_id = slide_ids.iloc[batch_idx]
+        with torch.no_grad():
+            logits, Y_prob, Y_hat, instance_dict = model(data, inst_pred=False)
+            Y_prob=Y_prob.squeeze(0)
+        if model_type in ['clam_sb', 'clam_mb', 'PAMIL']:
+            score = instance_dict['A_raw'].T
+            # score = F.softmax(score,dim=1)
+        elif model_type in ['wsod']:
+            score = logits
+
+        acc_logger.log(Y_hat, label)
+        probs = Y_prob.cpu().numpy()
+        all_probs[batch_idx] = probs
+        all_labels[batch_idx] = label_bn.squeeze().detach().cpu().numpy()
+        
+        patient_results.update({slide_id: {'slide_id': np.array(slide_id), 'prob': probs, 'label': label.squeeze().detach().cpu().numpy()}})
+        error = calculate_error(Y_hat, label)
+        test_error += error
+
+    test_error /= len(loader)
+
+    aucs = []
+    binary_labels = all_labels# label_binarize(all_labels, classes=[i for i in range(n_classes)])
+    # all_labels_list = 
+    for class_idx in range(n_classes):
+        if 1 in all_labels[:, class_idx]:
+            fpr, tpr, _ = roc_curve(binary_labels[:, class_idx], all_probs[:, class_idx])
+            aucs.append(calc_auc(fpr, tpr))
+        else:
+            aucs.append(float('nan'))
+
+    auc = np.nanmean(np.array(aucs))
+
+
+    return patient_results, test_error, auc, acc_logger
+
+def summary_original(model, loader, n_classes, model_type):
     device=torch.device("cuda" if torch.cuda.is_available() else "cpu")
     acc_logger = Accuracy_Logger(n_classes=n_classes)
     model.eval()

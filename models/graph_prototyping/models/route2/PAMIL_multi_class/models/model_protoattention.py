@@ -29,31 +29,6 @@ class Attn_Net_Gated(nn.Module):
         proto_A = torch.transpose(proto_A, 0, 1)  # n * p
         A = self.attention_c(proto_A)  # n x n_classes
         return proto_A, A
-    
-# class Proto_Attn_Net_Gated(nn.Module):
-#     def __init__(self, L = 10, D = 5, dropout = False, n_classes = 1):
-#         super(Attn_Net_Gated, self).__init__()
-#         self.attention_a = [nn.Linear(L, D),
-#                             nn.Tanh()]
-        
-#         self.attention_b = [nn.Linear(L, D),
-#                             nn.Sigmoid()]
-#         if dropout:
-#             self.attention_a.append(nn.Dropout(0.25))
-#             self.attention_b.append(nn.Dropout(0.25))
-
-#         self.attention_a = nn.Sequential(*self.attention_a)
-#         self.attention_b = nn.Sequential(*self.attention_b)
-        
-#         self.attention_c = nn.Linear(D, n_classes)
-
-#     def forward(self, x):
-#         a = self.attention_a(x)  # n * d (n_protos // 2)
-#         b = self.attention_b(x)  # n * d (n_protos // 2)
-#         Attention = torch.mul(a, b)  # n * d (n_protos // 2)
-#         proto_A = torch.transpose(proto_A, 0, 1)  # n * p
-#         A = self.attention_c(proto_A)  # n x n_classes
-#         return proto_A, A
 
 class KL_Divergence_Loss(nn.Module):
     def __init__(self):
@@ -133,11 +108,6 @@ class PAMIL(nn.Module):
             # v1 & v2
             proto_pred_classifier = [nn.Linear(size[1], n_classes)]
             self.proto_pred_classifier = nn.Sequential(*proto_pred_classifier)
-            # # === v3 for the abmil ===
-            # self.abmil = abmil(num_prototypes=n_protos, num_class=n_classes)
-            # proto_bag_classifiers = [nn.Linear(size[1], 1) for i in range(n_classes)] #use an indepdent linear layer to predict each class
-            # self.proto_pred_classifier = nn.ModuleList(proto_bag_classifiers)
-            # # === ===
             
             self.ERloss_function = KL_Divergence_Loss()
             self.attention_er_function = nn.KLDivLoss(reduction='batchmean')
@@ -212,34 +182,15 @@ class PAMIL(nn.Module):
         if self.proto_pred:
             # === v1 get the proto score ===
             proto_score, _ = torch.max(proto_A, dim=0)  # 1 * p
-            # # v2 use prototype to replace the patch
-            # # max_values, _ = torch.max(proto_A, dim=1, keepdim=True)
-            # # proto_replace = torch.where(proto_A == max_values, proto_A, torch.zeros_like(proto_A))
-            # # proto_score = torch.sum(proto_replace, dim=0)
             
             proto_score = proto_score / torch.max(proto_score)
             proto_score = F.softmax(proto_score.unsqueeze(0), dim=1)  # softmax over p
             proto_M = torch.mm(proto_score, proto)  # 1 * p * p * d
             proto_logits = self.proto_pred_classifier(proto_M)
-            # # === ===
-            
-            # # v3 use the ABMIL get the proto score
-            # proto_score, p_A, p_A_raw = self.abmil(proto_A)
-            # proto_score = F.softmax(proto_score, dim=1)  # softmax over p
-            # proto_M = torch.mm(proto_score, proto)  # c * p * p * d
-            # proto_logits = torch.empty(1, self.n_classes).float().to(device)
-            # for c in range(self.n_classes):
-            #     proto_logits[0, c] = self.proto_pred_classifier[c](proto_M[c])
             
             loss_er = self.ERloss_function(logits, proto_logits)
             logits = logits * (1-self.proto_weight) + proto_logits * self.proto_weight
             result_dict['loss_er'] = loss_er
-            
-            # # v18, must with v3
-            # A_raw_cls = torch.softmax(A_raw, dim=0)  # softmax over class
-            # p_A_raw_cls = torch.softmax(p_A_raw, dim=0)  # softmax over class
-            # loss_att_er = self.attention_er_function(torch.log(A_raw_cls), p_A_raw_cls)
-            # result_dict['loss_att_er'] = loss_att_er
 
         # use inst loss like clam, for exp v15
         if inst_pred:
@@ -274,90 +225,7 @@ class PAMIL(nn.Module):
         result_dict['loss_proto_clst'] = loss_proto_clst
         
         return logits, Y_prob, Y_hat, result_dict
-        
-# def push(loader, model, epoch, save_proto=False, result_dir=None, cur=None):  # previous push operation, 2024022
-#     # get the proto_A
-#     device=torch.device("cuda" if torch.cuda.is_available() else "cpu")
-#     with torch.no_grad():
-#         max_similarity = [0 for _ in range(model.n_protos)]
-#         mid_proto = torch.zeros((model.proto.shape))
-#         best_patients = ['' for _ in range(model.n_protos)]
-#         best_cors = ['' for _ in range(model.n_protos)]
-#         for batch_idx, (data, label, cors, inst_label, slide_id) in enumerate(loader):
-#             cors = cors[0]
-#             slide_id = slide_id[0]
-#             inst_label = inst_label[0]
-#             data, label = data.to(device), label.to(device)
-#             _, _, _, instance_dict = model(data)
-#             proto_A = instance_dict['proto_A']
-#             # get the max similarity
-#             _, indexs = torch.max(proto_A, dim=0)
-#             for i in range(model.n_protos):
-#                 if proto_A[indexs[i], i] > max_similarity[i]:
-#                     max_similarity[i] = proto_A[indexs[i], i]
-#                     mid_proto[i, :] = data[indexs[i], :]
-#                     best_patients[i] = slide_id
-#                     best_cors[i] = cors[indexs[i]]
-                    
-#         # push the patches features to the vector
-#         model.proto = torch.nn.Parameter(mid_proto.to(device), requires_grad=True)
-    
-#         # if save the result
-#         if save_proto:
-#             save_push_result(epoch=epoch, patients=best_patients, 
-#                              coords=best_cors, save_path=result_dir, cur=cur)
-#     print('Done!')
-    
-# def push(loader, model, epoch, save_proto=False, result_dir=None, cur=None):
-#     # get the proto_A
-#     device=torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    
-#     # get the prototype <-> class matrix, get the prototype class
-#     proto_class_matrix = model.attention_net.attention_c.weight.data
-#     proto_class_matrix = proto_class_matrix.detach()
-#     _, proto_class = torch.max(proto_class_matrix, axis=0)
-    
-#     with torch.no_grad():
-#         max_similarity = [0 for _ in range(model.n_protos)]
-#         mid_proto = torch.zeros((model.proto.shape))
-#         best_patients = ['' for _ in range(model.n_protos)]
-#         best_cors = ['' for _ in range(model.n_protos)]
-#         for batch_idx, (data, label, cors, inst_label, slide_id) in enumerate(loader):
-#             data, label = data.to(device), label.to(device)
-#             cors = cors[0]
-#             slide_id = slide_id[0]
-#             label = label[0]
-#             _, _, _, instance_dict = model(data)
-#             proto_A = instance_dict['proto_A']
-#             # get the max similarity with the same label
 
-#             indexs = [-1 for _ in range(model.n_protos)]  # init the indexs            
-#             for i in range(model.n_protos):
-#                 if label == proto_class[i]:
-#                     row = proto_A[:, i]
-#                     max_index = torch.argmax(row)
-                    
-#                     while max_index in indexs:
-#                         row[max_index] = -1e5
-#                         max_index = torch.argmax(row)
-#                     indexs[i] = max_index
-                
-#                     # save the max similarity patch
-#                     if proto_A[indexs[i], i] > max_similarity[i]:
-#                         max_similarity[i] = proto_A[indexs[i], i]
-#                         mid_proto[i, :] = data[indexs[i], :]
-#                         best_patients[i] = slide_id
-#                         best_cors[i] = cors[indexs[i]]
-#                 else:
-#                     continue
-                    
-#         # push the patches features to the vector
-#         model.proto = torch.nn.Parameter(mid_proto.to(device), requires_grad=True)
-    
-#         # if save the result
-#         if save_proto:
-#             save_push_result(epoch=epoch, patients=best_patients, coords=best_cors, save_path=result_dir, cur=cur)
-#     print('Done!')
 
 def push(loader, model, epoch, save_proto=False, result_dir=None, cur=None):  # v26
     # get the proto_A

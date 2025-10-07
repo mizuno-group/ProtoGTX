@@ -217,6 +217,22 @@ def build_cooccurrence_graph(labels, neighbor_frequencies, max_edges_per_node=1,
     
     return G, cooccurrence_matrix, unique_labels
 
+def build_cooccurrence_graph_from_matrix(matrix, max_edges_per_node=1):
+    G = nx.Graph()
+    num_nodes = matrix.shape[0]
+    for i in range(num_nodes):
+        G.add_node(i)
+        # Each node adds up to max_edges_per_node edges
+        neighbors = np.argsort(matrix[i])[::-1]  # sort in descending order
+        edges_added = 0
+        for j in neighbors:
+            if i != j and matrix[i, j] > 0:
+                G.add_edge(i, j, weight=matrix[i, j])
+                edges_added += 1
+                if edges_added >= max_edges_per_node:
+                    break
+    return G
+
 def visualize_cooccurrence_graph(G, cooccurrence_matrix, unique_labels, figsize=(15, 6), 
                                node_size_multiplier=300, edge_width_multiplier=5):
     """

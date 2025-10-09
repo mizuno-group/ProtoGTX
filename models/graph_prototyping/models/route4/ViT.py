@@ -279,7 +279,7 @@ class VisionTransformer(nn.Module):
     """ Vision Transformer with support for patch or hybrid CNN input stage
     """
     def __init__(self, num_classes=2, embed_dim=64, depth=3,
-                 num_heads=8, mlp_ratio=2., qkv_bias=False, wo_head=False, mlp_head=False, drop_rate=0., attn_drop_rate=0.):
+                 num_heads=8, mlp_ratio=2., qkv_bias=False, mlp_head=False, drop_rate=0., attn_drop_rate=0.):
         super().__init__()
         self.num_classes = num_classes
         self.num_features = self.embed_dim = embed_dim  # num_features for consistency with other models
@@ -291,16 +291,12 @@ class VisionTransformer(nn.Module):
             for i in range(depth)])
 
         self.norm = LayerNorm(embed_dim)
-        self.wo_head = wo_head
-        if wo_head:
-            self.head = nn.Identity()
+        if mlp_head:
+            # paper diagram suggests 'MLP head', but results in 4M extra parameters vs paper
+            self.head = Mlp(embed_dim, int(embed_dim * mlp_ratio), num_classes)
         else:
-            if mlp_head:
-                # paper diagram suggests 'MLP head', but results in 4M extra parameters vs paper
-                self.head = Mlp(embed_dim, int(embed_dim * mlp_ratio), num_classes)
-            else:
-                # with a single Linear layer as head, the param count within rounding of paper
-                self.head = Linear(embed_dim, num_classes)
+            # with a single Linear layer as head, the param count within rounding of paper
+            self.head = Linear(embed_dim, num_classes)
 
         #self.apply(self._init_weights)
 
@@ -343,9 +339,10 @@ class VisionTransformer(nn.Module):
         return x
 
     def relprop(self, cam=None,method="transformer_attribution", is_ablation=False, start_layer=0, **kwargs):
-        if self.wo_head == False:
-            cam = self.head.relprop(cam, **kwargs)
-            cam = cam.unsqueeze(1)
+        # print(kwargs)
+        # print("conservation 1", cam.sum())
+        cam = self.head.relprop(cam, **kwargs)
+        cam = cam.unsqueeze(1)
         cam = self.pool.relprop(cam, **kwargs)
         cam = self.norm.relprop(cam, **kwargs)
         for blk in reversed(self.blocks):

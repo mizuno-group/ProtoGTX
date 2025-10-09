@@ -23,7 +23,9 @@ def collate(batch):
     label = [ b['label'] for b in batch ]
     id = [ b['id'] for b in batch ]
     adj_s = [ b['adj_s'] for b in batch ]
-    return {'image': image, 'label': label, 'id': id, 'adj_s': adj_s}
+    expl = torch.stack([b['expl'] for b in batch], dim=0)
+    return {'image': image, 'label': label, 'id': id, 'adj_s': adj_s, 'expl': expl}
+
 
 def preparefeatureLabel(batch_graph, batch_label, batch_adjs, n_features: int = 512):
     batch_size = len(batch_graph)
@@ -72,11 +74,11 @@ class Trainer(object):
     def plot_cm(self):
         self.metrics.plotcm()
 
-    def train(self, sample, model, n_features=512, proto_feats=None, proto_adj=None):
+    def train(self, sample, model, n_features: int = 512):
         node_feat, labels, adjs, masks = preparefeatureLabel(sample['image'], sample['label'], sample['adj_s'], n_features=n_features)
-        pred,labels,loss = model.forward(node_feat, labels, adjs, masks, proto_feats, proto_adj)
+        pred,labels,loss,concept_attn = model.forward(node_feat, labels, adjs, masks, sample['expl'])
 
-        return pred,labels,loss
+        return pred,labels,loss,concept_attn
 
 class Evaluator(object):
     def __init__(self, n_class):
@@ -93,12 +95,8 @@ class Evaluator(object):
     def plot_cm(self):
         self.metrics.plotcm()
 
-    def eval_test(self, sample, model, graphcam_flag=False, n_features=512, proto_feats=None, proto_adj=None):
+    def eval_test(self, sample, model, n_features : int = 512):
         node_feat, labels, adjs, masks = preparefeatureLabel(sample['image'], sample['label'], sample['adj_s'], n_features=n_features)
-        if not graphcam_flag:
-            with torch.no_grad():
-                pred,labels,loss = model.forward(node_feat, labels, adjs, masks, proto_feats, proto_adj)
-        else:
-            torch.set_grad_enabled(True)
-            pred,labels,loss= model.forward(node_feat, labels, adjs, masks, graphcam_flag=graphcam_flag, proto_features=proto_feats, proto_adj=proto_adj)
-        return pred,labels,loss
+        with torch.no_grad():
+            pred,labels,loss,concept_attn = model.forward(node_feat, labels, adjs, masks, sample['expl'])
+        return pred,labels,loss,concept_attn

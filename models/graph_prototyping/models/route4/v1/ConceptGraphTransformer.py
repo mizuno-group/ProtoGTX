@@ -30,7 +30,7 @@ from torch.nn import Linear
 
 
 class Classifier(nn.Module):
-    def __init__(self, n_class, n_features: int = 512):
+    def __init__(self, n_class, n_features=512, expl_w=5.0):
         super(Classifier, self).__init__()
 
         self.embed_dim = 64
@@ -53,6 +53,7 @@ class Classifier(nn.Module):
         self.num_heads = 2
         self.attention_dropout = 0.1
         self.projection_dropout = 0.1
+        self.expl_w = expl_w  # weight for explanation loss
 
         # unsupervised
         self.unsup_concepts = nn.Parameter(
@@ -70,6 +71,7 @@ class Classifier(nn.Module):
         self.concepts = nn.Parameter(
             torch.zeros(1, self.n_concepts, self.embed_dim), requires_grad=True
         )
+        nn.init.xavier_uniform_(self.concepts)
         self.concept_transformer = CrossAttention(
             dim=self.embed_dim,
             n_outputs=self.embed_dim,
@@ -85,9 +87,12 @@ class Classifier(nn.Module):
         X = self.conv1(X, adj, mask)  # (B, N, embed_dim)
 
         # concept cross-attention
-        X, concept_attn = self.concept_transformer(X, self.concepts)  # (B, N, embed_dim)
+        X_attn, concept_attn = self.concept_transformer(X, self.concepts)  # (B, N, embed_dim)
+        X = X + X_attn  # residual connection
         concept_attn = concept_attn.mean(1)  # average over heads  # (B, N, n_prototypes)
         concept_attn_sum = concept_attn.sum(1)  # (B, n_prototypes)
+
+        del X_attn
 
         s = self.pool1(X)  # (B, N, node_cluster_num)
         X, adj, mc1, o1 = dense_mincut_pool(X, adj, s, mask)  # (B, node_cluster_num, embed_dim)
@@ -100,7 +105,7 @@ class Classifier(nn.Module):
 
         # explanation loss
         expl_loss = concepts_cost(concept_attn_sum, expl)
-        loss = loss + 1.0 * expl_loss  # expl_lambda=5.0
+        loss = loss + self.expl_w * expl_loss  # expl_lambda=5.0
 
         # pred
         pred = out.data.max(1)[1]

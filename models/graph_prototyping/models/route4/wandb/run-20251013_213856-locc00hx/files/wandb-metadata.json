@@ -1,0 +1,38 @@
+{
+  "os": "Linux-6.8.0-65-generic-x86_64-with-glibc2.35",
+  "python": "CPython 3.11.4",
+  "startedAt": "2025-10-13T12:38:56.657091Z",
+  "program": "/workspace/cluster/HDD/azuma/Pathology_Graph/workspace3/new_model_dev/250818_graph_prototyping/route4/251013_run_route1.py",
+  "git": {
+    "remote": "https://github.com/groovy-phazuma/PathoGraphX.git",
+    "commit": "ac6eb8d802461211a990ba43f98a856758f7f866"
+  },
+  "email": "phazuma19980625@gmail.com",
+  "root": "/workspace/cluster/HDD/azuma/Pathology_Graph/github/PathoGraphX/models/graph_prototyping/models/route4",
+  "host": "80ae46d17da8",
+  "executable": "/opt/250102_test_env/bin/python",
+  "cpu_count": 16,
+  "cpu_count_logical": 32,
+  "gpu": "NVIDIA GeForce RTX 4090",
+  "gpu_count": 1,
+  "disk": {
+    "/": {
+      "total": "982820896768",
+      "used": "169670778880"
+    }
+  },
+  "memory": {
+    "total": "134776897536"
+  },
+  "gpu_nvidia": [
+    {
+      "name": "NVIDIA GeForce RTX 4090",
+      "memoryTotal": "25757220864",
+      "cudaCores": 16384,
+      "architecture": "Ada",
+      "uuid": "GPU-d0db265e-a575-5017-d9ac-ad94db3b2755"
+    }
+  ],
+  "cudaVersion": "12.2",
+  "writerId": "q0m5l4y3e6hk52c2coph85iy9mjwtdja"
+}

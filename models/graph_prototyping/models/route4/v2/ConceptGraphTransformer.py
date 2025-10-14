@@ -48,18 +48,19 @@ class Classifier(nn.Module):
         self.pool1 = Linear(self.embed_dim, self.node_cluster_num)
 
         ### concept parameters ###
-        self.n_concepts = 16
-        self.n_unsup_concepts = 16
+        self.n_local_concepts = 16
+        self.n_global_concepts = 16
         self.num_heads = 2
         self.attention_dropout = 0.1
         self.projection_dropout = 0.1
         self.expl_w = expl_w  # weight for explanation loss
 
-        # unsupervised
-        self.unsup_concepts = nn.Parameter(
-            torch.zeros(1, self.n_unsup_concepts, self.embed_dim), requires_grad=True
+        # local
+        self.local_concepts = nn.Parameter(
+            torch.zeros(1, self.n_local_concepts, self.embed_dim), requires_grad=True
         )
-        self.unsup_concept_tranformer = CrossAttention(
+        nn.init.xavier_uniform_(self.local_concepts)
+        self.local_concept_transformer = CrossAttention(
             dim=self.embed_dim,
             n_outputs=self.embed_dim,
             num_heads=self.num_heads,
@@ -67,12 +68,13 @@ class Classifier(nn.Module):
             projection_dropout=self.projection_dropout,
         )
 
-        # supervised
-        self.concepts = nn.Parameter(
-            torch.zeros(1, self.n_concepts, self.embed_dim), requires_grad=True
+        # global
+        self.global_concepts = nn.Parameter(
+            torch.zeros(1, self.n_global_concepts, self.embed_dim), requires_grad=True
         )
-        nn.init.xavier_uniform_(self.concepts)
-        self.concept_transformer = CrossAttention(
+        nn.init.xavier_uniform_(self.global_concepts)
+
+        self.global_concept_transformer = CrossAttention(
             dim=self.embed_dim,
             n_outputs=self.embed_dim,
             num_heads=self.num_heads,
@@ -81,21 +83,29 @@ class Classifier(nn.Module):
         )
 
 
-    def forward(self,node_feat,labels,adj,mask,expl):
+    def forward(self,node_feat,labels,adj,mask,local_expl,global_expl):
         X=node_feat  # (B, N, D)
         X=mask.unsqueeze(2)*X  # (B, N, D)
         X = self.conv1(X, adj, mask)  # (B, N, embed_dim)
 
-        # concept cross-attention
-        X_attn, concept_attn = self.concept_transformer(X, self.concepts)  # (B, N, embed_dim)
-        X = X + X_attn  # residual connection
-        concept_attn = concept_attn.mean(1)  # average over heads  # (B, N, n_prototypes)
-        concept_attn_sum = concept_attn.sum(1)  # (B, n_prototypes)
+        # local concept transformer
+        X_attn1, local_concept_attn = self.local_concept_transformer(X, self.local_concepts)  # (B, N, embed_dim)
+        X = X + X_attn1  # residual connection
+        local_concept_attn = local_concept_attn.mean(1)  # average over heads  # (B, N, n_prototypes)
+        local_concept_attn_sum = local_concept_attn.sum(1)  # (B, n_prototypes)
 
-        del X_attn
+        del X_attn1
 
         s = self.pool1(X)  # (B, N, node_cluster_num)
         X, adj, mc1, o1 = dense_mincut_pool(X, adj, s, mask)  # (B, node_cluster_num, embed_dim)
+
+        # global concept transformer
+        X_attn2, global_concept_attn = self.global_concept_transformer(X, self.global_concepts)  # (B, N, embed_dim)
+        X = X + X_attn2  # residual connection
+        global_concept_attn = global_concept_attn.mean(1)  # average over heads  # (B, N, n_prototypes)
+        global_concept_attn_sum = global_concept_attn.sum(1)  # (B, n_prototypes)
+
+        del X_attn2
 
         out = self.transformer(X)
 
@@ -104,98 +114,15 @@ class Classifier(nn.Module):
         loss = loss + mc1 + o1
 
         # explanation loss
-        expl_loss = concepts_cost(concept_attn_sum, expl)
+        expl_loss = concepts_cost(local_concept_attn_sum, local_expl) \
+            + concepts_cost(global_concept_attn_sum, global_expl)
         loss = loss + self.expl_w * expl_loss  # expl_lambda=5.0
 
         # pred
         pred = out.data.max(1)[1]
 
-        return pred,labels,loss,concept_attn
+        return pred,labels,loss,(local_concept_attn,global_concept_attn)
 
-
-class ConceptTransformerVIT(nn.Module):
-    """Processes spatial and non-spatial concepts in parallel and aggregates the log-probabilities at the end.
-    The difference with the version in ctc.py is that instead of using sequence pooling for global concepts it
-    uses the embedding of the cls token of the VIT
-    """
-    def __init__(
-        self,
-        embedding_dim=768,
-        num_classes=10,
-        num_heads=2,
-        attention_dropout=0.1,
-        projection_dropout=0.1,
-        n_unsup_concepts=10,
-        n_concepts=10,
-        n_spatial_concepts=10,
-        *args,
-        **kwargs,
-    ):
-        super().__init__()
-
-        # Unsupervised concepts
-        self.n_unsup_concepts = n_unsup_concepts
-        self.unsup_concepts = nn.Parameter(
-            torch.zeros(1, n_unsup_concepts, embedding_dim), requires_grad=True
-        )
-        nn.init.trunc_normal_(self.unsup_concepts, std=1.0 / math.sqrt(embedding_dim))
-        if n_unsup_concepts > 0:
-            self.unsup_concept_tranformer = CrossAttention(
-                dim=embedding_dim,
-                n_outputs=num_classes,
-                num_heads=num_heads,
-                attention_dropout=attention_dropout,
-                projection_dropout=projection_dropout,
-            )
-
-        # Non-spatial concepts
-        self.n_concepts = n_concepts
-        self.concepts = nn.Parameter(torch.zeros(1, n_concepts, embedding_dim), requires_grad=True)
-        nn.init.trunc_normal_(self.concepts, std=1.0 / math.sqrt(embedding_dim))
-        if n_concepts > 0:
-            self.concept_tranformer = CrossAttention(
-                dim=embedding_dim,
-                n_outputs=num_classes,
-                num_heads=num_heads,
-                attention_dropout=attention_dropout,
-                projection_dropout=projection_dropout,
-            )
-
-        # Spatial Concepts
-        self.n_spatial_concepts = n_spatial_concepts
-        self.spatial_concepts = nn.Parameter(
-            torch.zeros(1, n_spatial_concepts, embedding_dim), requires_grad=True
-        )
-        nn.init.trunc_normal_(self.spatial_concepts, std=1.0 / math.sqrt(embedding_dim))
-        if n_spatial_concepts > 0:
-            self.spatial_concept_tranformer = CrossAttention(
-                dim=embedding_dim,
-                n_outputs=num_classes,
-                num_heads=num_heads,
-                attention_dropout=attention_dropout,
-                projection_dropout=projection_dropout,
-            )
-
-    def forward(self, x_cls, x):
-        unsup_concept_attn, concept_attn, spatial_concept_attn = None, None, None
-
-        out = 0.0
-        if self.n_unsup_concepts > 0:  # unsupervised stream
-            out_unsup, unsup_concept_attn = self.concept_tranformer(x_cls, self.unsup_concepts)
-            unsup_concept_attn = unsup_concept_attn.mean(1)  # average over heads
-            out = out + out_unsup.squeeze(1)  # squeeze token dimension
-
-        if self.n_concepts > 0:  # Non-spatial stream
-            out_n, concept_attn = self.concept_tranformer(x_cls, self.concepts)
-            concept_attn = concept_attn.mean(1)  # average over heads
-            out = out + out_n.squeeze(1)  # squeeze token dimension
-
-        if self.n_spatial_concepts > 0:  # Spatial stream
-            out_s, spatial_concept_attn = self.spatial_concept_tranformer(x, self.spatial_concepts)
-            spatial_concept_attn = spatial_concept_attn.mean(1)  # average over heads
-            out = out + out_s.mean(1)  # pool tokens sequence
-
-        return out, unsup_concept_attn, concept_attn, spatial_concept_attn
 
 # concept loss functions
 def ent_loss(probs):

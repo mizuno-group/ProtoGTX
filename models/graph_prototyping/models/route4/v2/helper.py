@@ -23,8 +23,10 @@ def collate(batch):
     label = [ b['label'] for b in batch ]
     id = [ b['id'] for b in batch ]
     adj_s = [ b['adj_s'] for b in batch ]
-    expl = torch.stack([b['expl'] for b in batch], dim=0)
-    return {'image': image, 'label': label, 'id': id, 'adj_s': adj_s, 'expl': expl}
+    l_expl = torch.stack([b['l_expl'] for b in batch], dim=0)
+    g_expl = torch.stack([b['g_expl'] for b in batch], dim=0)
+
+    return {'image': image, 'label': label, 'id': id, 'adj_s': adj_s, 'l_expl': l_expl, 'g_expl': g_expl}
 
 
 def preparefeatureLabel(batch_graph, batch_label, batch_adjs, n_features: int = 512):
@@ -76,7 +78,7 @@ class Trainer(object):
 
     def train(self, sample, model, n_features: int = 512):
         node_feat, labels, adjs, masks = preparefeatureLabel(sample['image'], sample['label'], sample['adj_s'], n_features=n_features)
-        pred,labels,loss,concept_attn = model.forward(node_feat, labels, adjs, masks, sample['expl'])
+        pred,labels,loss,concept_attn = model.forward(node_feat, labels, adjs, masks, sample['l_expl'], sample['g_expl'])
 
         return pred,labels,loss,concept_attn
 
@@ -98,5 +100,5 @@ class Evaluator(object):
     def eval_test(self, sample, model, n_features : int = 512):
         node_feat, labels, adjs, masks = preparefeatureLabel(sample['image'], sample['label'], sample['adj_s'], n_features=n_features)
         with torch.no_grad():
-            pred,labels,loss,concept_attn = model.forward(node_feat, labels, adjs, masks, sample['expl'])
+            pred,labels,loss,concept_attn = model.forward(node_feat, labels, adjs, masks, sample['l_expl'], sample['g_expl'])
         return pred,labels,loss,concept_attn

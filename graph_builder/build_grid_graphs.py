@@ -7,10 +7,8 @@ Reference
 
 @author: I.Azuma
 """
-# print current working directory
-import os
-os.chdir('/workspace/mnt/cluster/HDD/azuma/Pathology_Graph/github/PathoGraphX')
 
+import os
 import h5py
 import openslide
 import numpy as np
@@ -31,9 +29,9 @@ class CLAMGraphBuilder():
         self.save_dir = save_dir
 
         self.patch_files = sorted(glob(os.path.join(patch_dir, 'patches/*.h5')))
-        self.feature_files = sorted(glob(os.path.join(feature_dir, 'h5_files/*.h5')))
+        self.feature_files = sorted(glob(os.path.join(feature_dir, 'feats_h5/*.h5')))
         self.qc_info_files = sorted(glob(os.path.join(qc_info_dir, '*.h5')))
-        wsi_pattern = os.path.join(wsi_dir, '**', '*.svs')
+        wsi_pattern = os.path.join(wsi_dir, '**', '*.*')
         self.wsi_files = glob(wsi_pattern, recursive=True)
         self.do_qc = do_qc
 
@@ -50,7 +48,7 @@ class CLAMGraphBuilder():
         file_names = [t.split('/')[-1].split('.')[0] for t in self.patch_files]
         for file_name in tqdm(file_names):
             patch_path = os.path.join(self.patch_dir, 'patches', f'{file_name}.h5')
-            feature_path = os.path.join(self.feature_dir, 'h5_files', f'{file_name}.h5')
+            feature_path = os.path.join(self.feature_dir, 'feats_h5', f'{file_name}.h5')
             qc_info_path = os.path.join(self.qc_info_dir, f'{file_name}_qc_info.h5')
             wsi_path_candidates = [p for p in self.wsi_files if os.path.splitext(os.path.basename(p))[0] == file_name]
             if len(wsi_path_candidates) == 0:

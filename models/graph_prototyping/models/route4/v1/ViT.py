@@ -367,7 +367,8 @@ class VisionTransformer(nn.Module):
                 avg_heads = (attn_heads.sum(dim=1) / attn_heads.shape[1]).detach()
                 attn_cams.append(avg_heads)
             cam = compute_rollout_attention(attn_cams, start_layer=start_layer)
-            cam = cam[:, 0, 1:]
+            #cam = cam[:, 0, 1:]
+            cam = rollout[:, 0, :]  # NOTE: cls token is not included
             return cam
         
         # our method, method name grad is legacy
@@ -382,7 +383,8 @@ class VisionTransformer(nn.Module):
                 cam = cam.clamp(min=0).mean(dim=0)
                 cams.append(cam.unsqueeze(0))
             rollout = compute_rollout_attention(cams, start_layer=start_layer)
-            cam = rollout[:, 0, 1:]
+            #cam = rollout[:, 0, 1:]
+            cam = rollout[:, 0, :]  # NOTE: cls token is not included
             return cam
             
         elif method == "last_layer":
@@ -393,14 +395,16 @@ class VisionTransformer(nn.Module):
                 grad = grad[0].reshape(-1, grad.shape[-1], grad.shape[-1])
                 cam = grad * cam
             cam = cam.clamp(min=0).mean(dim=0)
-            cam = cam[0, 1:]
+            #cam = cam[0, 1:]
+            cam = cam[0, :]  # NOTE: cls token is not included
             return cam
 
         elif method == "last_layer_attn":
             cam = self.blocks[-1].attn.get_attn()
             cam = cam[0].reshape(-1, cam.shape[-1], cam.shape[-1])
             cam = cam.clamp(min=0).mean(dim=0)
-            cam = cam[0, 1:]
+            #cam = cam[0, 1:]
+            cam = cam[0, :]  # NOTE: cls token is not included
             return cam
 
         elif method == "second_layer":
@@ -411,5 +415,6 @@ class VisionTransformer(nn.Module):
                 grad = grad[0].reshape(-1, grad.shape[-1], grad.shape[-1])
                 cam = grad * cam
             cam = cam.clamp(min=0).mean(dim=0)
-            cam = cam[0, 1:]
+            #cam = cam[0, 1:]
+            cam = cam[0, :]  # NOTE: cls token is not included
             return cam

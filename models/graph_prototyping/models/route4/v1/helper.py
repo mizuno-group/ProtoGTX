@@ -95,8 +95,12 @@ class Evaluator(object):
     def plot_cm(self):
         self.metrics.plotcm()
 
-    def eval_test(self, sample, model, n_features : int = 512):
+    def eval_test(self, sample, model, graphcam_flag=False, n_features : int = 512):
         node_feat, labels, adjs, masks = preparefeatureLabel(sample['image'], sample['label'], sample['adj_s'], n_features=n_features)
-        with torch.no_grad():
-            pred,labels,loss,concept_attn = model.forward(node_feat, labels, adjs, masks, sample['expl'])
+        if not graphcam_flag:
+            with torch.no_grad():
+                pred,labels,loss,concept_attn = model.forward(node_feat, labels, adjs, masks, sample['expl'])
+        else:
+            torch.set_grad_enabled(True)
+            pred,labels,loss,concept_attn = model.forward(node_feat, labels, adjs, masks, sample['expl'], graphcam_flag=True)
         return pred,labels,loss,concept_attn

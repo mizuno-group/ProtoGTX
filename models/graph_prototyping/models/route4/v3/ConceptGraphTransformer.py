@@ -92,7 +92,6 @@ class Classifier(nn.Module):
         s = self.pool1(X)  # (B, N, node_cluster_num)
         if graphcam_flag:
             s_matrix = torch.argmax(s[0], dim=1)
-            
 
             os.makedirs(self.graphcam_dir, exist_ok=True)
             torch.save(s_matrix, path.join(self.graphcam_dir, 's_matrix.pt'))

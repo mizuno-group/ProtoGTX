@@ -9,33 +9,30 @@ Reference
 @author: I.Azuma
 """
 
-import sys
 import os
 import torch
-import random
 import numpy as np
+from os import path
 
-from torch.autograd import Variable
-from torch.nn.parameter import Parameter
 import torch.nn as nn
 import torch.nn.functional as F
-import torch.optim as optim
 
 from .ViT import *
 from .gcn import GCNBlock
 from .layers import CrossAttention
 
-from torch_geometric.nn import GCNConv, DenseGraphConv, dense_mincut_pool
+from torch_geometric.nn import dense_mincut_pool
 from torch.nn import Linear
 
 
 class Classifier(nn.Module):
-    def __init__(self, n_class, n_features=512, expl_w=5.0):
+    def __init__(self, n_class, n_features=512, expl_w=5.0, graphcam_dir='graphcam'):
         super(Classifier, self).__init__()
 
         self.embed_dim = 64
         self.num_layers = 3
         self.node_cluster_num = 100
+        self.graphcam_dir = graphcam_dir
 
         self.transformer = VisionTransformer(num_classes=n_class, embed_dim=self.embed_dim)
         self.cls_token = nn.Parameter(torch.zeros(1, 1, self.embed_dim))
@@ -81,7 +78,7 @@ class Classifier(nn.Module):
         )
 
 
-    def forward(self,node_feat,labels,adj,mask,expl):
+    def forward(self,node_feat,labels,adj,mask,expl,graphcam_flag=False):
         X=node_feat  # (B, N, D)
         X=mask.unsqueeze(2)*X  # (B, N, D)
         X = self.conv1(X, adj, mask)  # (B, N, embed_dim)
@@ -95,6 +92,19 @@ class Classifier(nn.Module):
         del X_attn
 
         s = self.pool1(X)  # (B, N, node_cluster_num)
+        if graphcam_flag:
+            s_matrix = torch.argmax(s[0], dim=1)
+            
+            os.makedirs(self.graphcam_dir, exist_ok=True)
+            torch.save(s_matrix, path.join(self.graphcam_dir, 's_matrix.pt'))
+            torch.save(s[0], path.join(self.graphcam_dir, 's_matrix_ori.pt'))
+
+            if path.exists(path.join(self.graphcam_dir, 'att_1.pt')):
+                os.remove(path.join(self.graphcam_dir, 'att_1.pt'))
+                os.remove(path.join(self.graphcam_dir, 'att_2.pt'))
+                os.remove(path.join(self.graphcam_dir, 'att_3.pt'))
+
+
         X, adj, mc1, o1 = dense_mincut_pool(X, adj, s, mask)  # (B, node_cluster_num, embed_dim)
 
         out = self.transformer(X)
@@ -109,6 +119,28 @@ class Classifier(nn.Module):
 
         # pred
         pred = out.data.max(1)[1]
+
+        if graphcam_flag:
+            print('GraphCAM enabled')
+            p = F.softmax(out)
+            torch.save(p, path.join(self.graphcam_dir, 'prob.pt'))
+
+            for index_ in range(p.size(1)):
+                one_hot = np.zeros((1, out.size()[-1]), dtype=np.float32)
+                one_hot[0, index_] = out[0][index_]
+                one_hot_vector = one_hot
+                one_hot = torch.from_numpy(one_hot).requires_grad_(True)
+                one_hot = torch.sum(one_hot.cuda() * out)       #!!!!!!!!!!!!!!!!!!!!out-->p
+                self.transformer.zero_grad()
+                one_hot.backward(retain_graph=True)
+
+                kwargs = {"alpha": 1}
+                cam = self.transformer.relprop(torch.tensor(one_hot_vector).to(X.device),
+                                               method="transformer_attribution", 
+                                               is_ablation=False, 
+                                               start_layer=0, **kwargs)
+
+                torch.save(cam, path.join(self.graphcam_dir, 'cam_{}.pt'.format(index_)))
 
         return pred,labels,loss,concept_attn
 

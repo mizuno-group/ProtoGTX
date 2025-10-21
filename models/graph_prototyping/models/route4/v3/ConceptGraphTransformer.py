@@ -112,11 +112,12 @@ class Classifier(nn.Module):
 
         # loss1
         loss = self.criterion(out, labels)
-        loss = loss + mc1 + o1
+        cls_loss = loss + mc1 + o1
 
         # explanation loss
         expl_loss = concepts_cost(concept_attn_sum, expl)
-        loss = loss + self.expl_w * expl_loss  # expl_lambda=5.0
+        expl_loss = self.expl_w * expl_loss
+        #loss = cls_loss + expl_loss
 
         # pred
         pred = out.data.max(1)[1]
@@ -143,7 +144,7 @@ class Classifier(nn.Module):
 
                 torch.save(cam, path.join(self.graphcam_dir, 'cam_{}.pt'.format(index_)))
 
-        return pred,labels,loss,concept_attn
+        return pred, labels, cls_loss, expl_loss, concept_attn
 
 
 # concept loss functions

@@ -76,9 +76,9 @@ class Trainer(object):
 
     def train(self, sample, model, n_features: int = 512):
         node_feat, labels, adjs, masks = preparefeatureLabel(sample['image'], sample['label'], sample['adj_s'], n_features=n_features)
-        pred,labels,loss,concept_attn = model.forward(node_feat, labels, adjs, masks, sample['expl'])
+        pred,labels,cls_loss,expl_loss,concept_attn = model.forward(node_feat, labels, adjs, masks, sample['expl'])
 
-        return pred,labels,loss,concept_attn
+        return pred,labels,cls_loss,expl_loss,concept_attn
 
 class Evaluator(object):
     def __init__(self, n_class):
@@ -99,8 +99,8 @@ class Evaluator(object):
         node_feat, labels, adjs, masks = preparefeatureLabel(sample['image'], sample['label'], sample['adj_s'], n_features=n_features)
         if not graphcam_flag:
             with torch.no_grad():
-                pred,labels,loss,concept_attn = model.forward(node_feat, labels, adjs, masks, sample['expl'])
+                pred,labels,cls_loss,expl_loss,concept_attn = model.forward(node_feat, labels, adjs, masks, sample['expl'])
         else:
             torch.set_grad_enabled(True)
-            pred,labels,loss,concept_attn = model.forward(node_feat, labels, adjs, masks, sample['expl'], graphcam_flag=True)
-        return pred,labels,loss,concept_attn
+            pred,labels,cls_loss,expl_loss,concept_attn = model.forward(node_feat, labels, adjs, masks, sample['expl'], graphcam_flag=True)
+        return pred,labels,cls_loss,expl_loss,concept_attn

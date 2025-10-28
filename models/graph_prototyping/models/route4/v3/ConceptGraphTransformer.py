@@ -24,7 +24,7 @@ from .layers import CrossAttention
 
 
 class Classifier(nn.Module):
-    def __init__(self, n_class, n_features=512, expl_w=5.0, graphcam_dir='graphcam'):
+    def __init__(self, n_class, n_features=512, n_concepts=16, expl_w=5.0, graphcam_dir='graphcam'):
         super(Classifier, self).__init__()
 
         self.embed_dim = 64
@@ -43,8 +43,8 @@ class Classifier(nn.Module):
         self.pool1 = Linear(self.embed_dim, self.node_cluster_num)
 
         ### concept parameters ###
-        self.n_concepts = 16
-        self.n_unsup_concepts = 16
+        self.n_concepts = n_concepts
+        self.n_unsup_concepts = n_concepts
         self.num_heads = 2
         self.attention_dropout = 0.1
         self.projection_dropout = 0.1
@@ -103,6 +103,8 @@ class Classifier(nn.Module):
                 os.remove(path.join(self.graphcam_dir, 'att_3.pt'))
 
         X, adj, mc1, o1 = dense_mincut_pool(X, adj, s, mask)  # (B, node_cluster_num, embed_dim)
+        mc1 = safe_loss(mc1)
+        o1 = safe_loss(o1)
 
         b, _, _ = X.shape
         cls_token = self.cls_token.repeat(b, 1, 1)
@@ -180,3 +182,11 @@ def concepts_cost(concept_attn, attn_targets):
     norm_concept_attn = concept_attn[idx] / concept_attn[idx].sum(-1, keepdims=True)
     n_concepts = norm_attn_targets.shape[-1]
     return n_concepts * F.mse_loss(norm_concept_attn, norm_attn_targets, reduction="mean")
+
+def safe_loss(x, eps=1e-8):
+    if torch.isnan(x) or torch.isinf(x):
+        return torch.tensor(0.0, device=x.device, dtype=x.dtype)
+    if x.abs().item() > 1e6:  # too large
+        return torch.tensor(0.0, device=x.device, dtype=x.dtype)
+    return torch.clamp(x, min=-1e3, max=1e3)  # upper and lower limit
+

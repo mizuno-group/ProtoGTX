@@ -18,7 +18,7 @@ from matplotlib import font_manager as fm
 
 from glob import glob
 from tqdm import tqdm
-from PIL import Image, ImageOps
+from PIL import Image, ImageOps, ImageDraw
 
 import torch
 
@@ -127,6 +127,66 @@ def visualize_categorical_heatmap(
     img = Image.fromarray(img)
     return img
 
+def visualize_specific_proto(
+        wsi,
+        coords, 
+        labels, 
+        label2color_dict,
+        vis_level=None,
+        patch_size=(256, 256),
+        alpha=0.4,
+        verbose=True,
+        proto_id=7
+    ):
+
+    # Scaling from 0 to desired level
+    downsample = int(wsi.level_downsamples[vis_level])
+    scale = [1/downsample, 1/downsample]
+
+    if len(labels.shape) == 1:
+        labels = labels.reshape(-1, 1)
+
+    top_left = (0, 0)
+    bot_right = wsi.level_dimensions[0]
+    region_size = tuple((np.array(wsi.level_dimensions[0]) * scale).astype(int))
+    w, h = region_size
+
+    patch_size_orig = patch_size
+    patch_size = np.ceil(np.array(patch_size) * np.array(scale)).astype(int)
+    coords = np.ceil(coords * np.array(scale)).astype(int)
+
+    if verbose:
+        print('\nCreating heatmap for: ')
+        print('Top Left: ', top_left, 'Bottom Right: ', bot_right)
+        print('Width: {}, Height: {}'.format(w, h))
+        print(f'Original Patch Size / Scaled Patch Size: {patch_size_orig} / {patch_size}')
+    
+    vis_level = wsi.get_best_level_for_downsample(downsample)
+    img = wsi.read_region(top_left, vis_level, wsi.level_dimensions[vis_level]).convert("RGB")
+    if img.size != region_size:
+        img = img.resize(region_size, resample=Image.Resampling.BICUBIC)
+    img = np.array(img)
+    
+    if verbose:
+        print('vis_level: ', vis_level)
+        print('downsample: ', downsample)
+        print('region_size: ', region_size)
+        print('total of {} patches'.format(len(coords)))
+    
+    for idx in tqdm(range(len(coords))):
+        if labels[idx][0] != proto_id:
+            continue
+        coord = coords[idx]
+        color = label2color_dict[labels[idx][0]]
+        img_block = img[coord[1]:coord[1]+patch_size[1], coord[0]:coord[0]+patch_size[0]].copy()
+        color_block = (np.ones((img_block.shape[0], img_block.shape[1], 3)) * color).astype(np.uint8)
+        blended_block = cv2.addWeighted(color_block, alpha, img_block, 1 - alpha, 0)
+        blended_block = np.array(ImageOps.expand(Image.fromarray(blended_block), border=1, fill=(50,50,50)).resize((img_block.shape[1], img_block.shape[0])))
+        img[coord[1]:coord[1]+patch_size[1], coord[0]:coord[0]+patch_size[0]] = blended_block
+
+    img = Image.fromarray(img)
+    return img
+
 class VisP2PAttn():
     def __init__(self, wsi_dirs, h5_feats_dirs, patch_size=512, downsample=64, n_prototypes=16):
         self.wsi_dirs = wsi_dirs
@@ -135,7 +195,7 @@ class VisP2PAttn():
         self.downsample = downsample
         self.n_prototypes = n_prototypes
 
-    def visualize_attn(self, slide_id, concept_attn, ind=0):
+    def visualize_attn(self, slide_id, concept_attn, ind=0, proto_id=None):
         slide_id = slide_id.split('.')[0]
         h5_feats_fpath = None
         for d in self.h5_feats_dirs:
@@ -164,17 +224,32 @@ class VisP2PAttn():
         #count_labels = np.bincount(global_cluster_labels)
         counts = np.bincount(global_cluster_labels, minlength=self.n_prototypes)
 
-        cat_map = visualize_categorical_heatmap(
-            wsi,
-            coords, 
-            global_cluster_labels, 
-            label2color_dict=get_default_cmap(self.n_prototypes),
-            vis_level=wsi.get_best_level_for_downsample(self.downsample),
-            patch_size=(self.patch_size, self.patch_size),
-            alpha=0.4,
-        )
-        display(cat_map.resize((cat_map.width//4, cat_map.height//4)))
-        display(get_mixture_plot(mixtures=counts/counts.sum()))
+        if proto_id is None:
+            cat_map = visualize_categorical_heatmap(
+                wsi,
+                coords, 
+                global_cluster_labels, 
+                label2color_dict=get_default_cmap(self.n_prototypes),
+                vis_level=wsi.get_best_level_for_downsample(self.downsample),
+                patch_size=(self.patch_size, self.patch_size),
+                alpha=0.4,
+            )
+            display(cat_map.resize((cat_map.width//4, cat_map.height//4)))
+            display(get_mixture_plot(mixtures=counts/counts.sum()))
+        else:
+            cat_map = visualize_specific_proto(
+                wsi,
+                coords, 
+                global_cluster_labels, 
+                label2color_dict=get_default_cmap(self.n_prototypes),
+                vis_level=wsi.get_best_level_for_downsample(self.downsample),
+                patch_size=(self.patch_size, self.patch_size),
+                alpha=0.4,
+                proto_id=proto_id
+            )
+            display(cat_map.resize((cat_map.width//4, cat_map.height//4)))
+            mixtures=counts/counts.sum()
+            print(f'Proportion of prototype {proto_id}: {mixtures[proto_id]:.4f}')
 
 
 class VisP2P():
@@ -185,7 +260,7 @@ class VisP2P():
         self.downsample = downsample
         self.n_prototypes = n_prototypes
 
-    def visualize_initial_mapping(self, slide_id, proto_feats):
+    def visualize_initial_mapping(self, slide_id, proto_feats, sim_threshold=0.5, proto_id=None):
         slide_id = slide_id.split('.')[0]
         h5_feats_fpath = None
         for d in self.h5_feats_dirs:
@@ -217,28 +292,45 @@ class VisP2P():
             feats_tensor.unsqueeze(1),
             proto_tensor.unsqueeze(0),
             dim=-1
-        ) 
+        )
+
+        sim[sim < sim_threshold] = 0.0  # apply threshold
         global_cluster_labels = torch.argmax(sim, dim=1).numpy()
         counts = np.bincount(global_cluster_labels, minlength=self.n_prototypes)
 
-        cat_map = visualize_categorical_heatmap(
-            wsi,
-            coords, 
-            global_cluster_labels, 
-            label2color_dict=get_default_cmap(self.n_prototypes),
-            vis_level=wsi.get_best_level_for_downsample(self.downsample),
-            patch_size=(self.patch_size, self.patch_size),
-            alpha=0.4,
-        )
-        display(cat_map.resize((cat_map.width//4, cat_map.height//4)))
-        display(get_mixture_plot(mixtures=counts/counts.sum()))
+        if proto_id is None:
+            cat_map = visualize_categorical_heatmap(
+                wsi,
+                coords, 
+                global_cluster_labels, 
+                label2color_dict=get_default_cmap(self.n_prototypes),
+                vis_level=wsi.get_best_level_for_downsample(self.downsample),
+                patch_size=(self.patch_size, self.patch_size),
+                alpha=0.4,
+            )
+            display(cat_map.resize((cat_map.width//4, cat_map.height//4)))
+            display(get_mixture_plot(mixtures=counts/counts.sum()))
+        else:
+            cat_map = visualize_specific_proto(
+                wsi,
+                coords, 
+                global_cluster_labels, 
+                label2color_dict=get_default_cmap(self.n_prototypes),
+                vis_level=wsi.get_best_level_for_downsample(self.downsample),
+                patch_size=(self.patch_size, self.patch_size),
+                alpha=0.4,
+                proto_id=proto_id
+            )
+            display(cat_map.resize((cat_map.width//4, cat_map.height//4)))
+            mixtures=counts/counts.sum()
+            print(f'Proportion of prototype {proto_id}: {mixtures[proto_id]:.4f}')
 
         return global_cluster_labels
 
 
 class VisRelatedPatches():
     def __init__(self, slide_ids, proto_feats, h5_feats_dirs, wsi_dirs,
-                 topn=3, patch_size=512, scale=4, proto_norm=False):
+                 topn=3, patch_size=512, square_size=None, scale=4, proto_norm=False):
         self.slide_ids = [t.split('.')[0] for t in slide_ids]
         self.proto_feats = proto_feats
         tmp_h5_feats_paths = []
@@ -264,10 +356,11 @@ class VisRelatedPatches():
         assert len(self.h5_feats_paths)==len(self.wsi_paths), f'len(h5)={len(self.h5_feats_paths)}, len(wsi)={len(self.wsi_paths)}'
         self.topn = topn
         self.patch_size = patch_size
+        self.square_size = square_size
         self.scale = scale
         self.proto_norm = proto_norm
 
-    def visualize_related_patches(self, vis=True):
+    def visualize_related_patches(self, vis=True, proto_id=None):
         stack_feats = []
         stack_coords = []
         stack_slide_ids = []
@@ -314,8 +407,34 @@ class VisRelatedPatches():
         print(f'Top {self.topn} related prototypes: ', topn_related_proto)
 
         if vis:
-            for p_n, indices in topn_related_proto.items():
-                print(f'Prototype {p_n}:')
+            if proto_id is None:
+                for p_n, indices in topn_related_proto.items():
+                    print(f'Prototype {p_n}:')
+                    for idx in indices:
+                        slide_id = stack_slide_ids[idx]  # identify which slide the patch belongs to
+                        coord = stack_coords[idx]
+
+                        wsi_path = None
+                        for path in self.wsi_paths:
+                            if slide_id in path:
+                                wsi_path = path
+                                break
+                        
+                        print(f'  Slide ID: {slide_id}, Coord: {coord}, WSI path: {wsi_path}')
+                        wsi = openslide.open_slide(wsi_path)
+                        half = self.patch_size // 2
+                        x = int(coord[0] - half)
+                        y = int(coord[1] - half)
+
+                        patch = wsi.read_region((x, y), 0, (self.patch_size, self.patch_size)).convert("RGB")
+    
+                        #patch = wsi.read_region((coord[0], coord[1]), 0, (self.patch_size, self.patch_size)).convert("RGB")
+                        display(patch.resize((patch.width//self.scale, patch.height//self.scale)))
+                        wsi.close()
+
+            else:
+                indices = topn_related_proto[proto_id]
+                print(f'Prototype {proto_id}:')
                 for idx in indices:
                     slide_id = stack_slide_ids[idx]  # identify which slide the patch belongs to
                     coord = stack_coords[idx]
@@ -328,7 +447,20 @@ class VisRelatedPatches():
                     
                     print(f'  Slide ID: {slide_id}, Coord: {coord}, WSI path: {wsi_path}')
                     wsi = openslide.open_slide(wsi_path)
-                    patch = wsi.read_region((coord[0], coord[1]), 0, (self.patch_size, self.patch_size)).convert("RGB")
+                    half = self.patch_size // 2
+                    x = int(coord[0] - half)
+                    y = int(coord[1] - half)
+
+                    patch = wsi.read_region((x, y), 0, (self.patch_size, self.patch_size)).convert("RGB")
+                    if self.square_size is not None:
+                        draw = ImageDraw.Draw(patch)
+                        cx, cy = patch.width // 2, patch.height // 2
+                        x0, y0 = cx - self.square_size // 2, cy - self.square_size // 2
+                        x1, y1 = cx + self.square_size // 2, cy + self.square_size // 2
+                        draw.rectangle([x0, y0, x1, y1], outline="black", width=10)
+
+
+                    #patch = wsi.read_region((coord[0], coord[1]), 0, (self.patch_size, self.patch_size)).convert("RGB")
                     display(patch.resize((patch.width//self.scale, patch.height//self.scale)))
                     wsi.close()
 

@@ -65,6 +65,9 @@ class Classifier(nn.Module):
                 os.remove(path.join('graphcam', 'att_3.pt'))
     
         X, adj, mc1, o1 = dense_mincut_pool(X, adj, s, mask)
+        mc1 = safe_loss(mc1)
+        o1 = safe_loss(o1)
+        
         b, _, _ = X.shape
         cls_token = self.cls_token.repeat(b, 1, 1)
         X = torch.cat([cls_token, X], dim=1)
@@ -99,3 +102,11 @@ class Classifier(nn.Module):
                 torch.save(cam, path.join('graphcam', 'cam_{}.pt'.format(index_)))
 
         return pred,labels,loss
+
+def safe_loss(x, eps=1e-8):
+    if torch.isnan(x) or torch.isinf(x):
+        return torch.tensor(0.0, device=x.device, dtype=x.dtype)
+    if x.abs().item() > 1e6:  # too large
+        return torch.tensor(0.0, device=x.device, dtype=x.dtype)
+    return torch.clamp(x, min=-1e3, max=1e3)  # upper and lower limit
+

@@ -28,7 +28,7 @@ class VisGraphCAM():
         self.class_dict = class_dict
         self.stack_auto = stack_auto
 
-    def visualize_graphcam(self, sample_batched, n_class=3, ind=0):
+    def visualize_graphcam(self, sample_batched, n_class=3, patch_size=512, ind=0):
         slide_id = sample_batched['id'][ind].split('.')[0]
         label_id = int(sample_batched['label'][0])
         label_name = [k for k,v in self.class_dict.items() if v==label_id][0]
@@ -78,7 +78,7 @@ class VisGraphCAM():
 
         vis_merge_list = []
         for cam_id in range(n_class):
-            vis = self.cam_processing(output_img, assign_matrix, p, coords, width, height, cam_id=cam_id)
+            vis = self.cam_processing(output_img, assign_matrix, p, coords, width, height, patch_size=patch_size, cam_id=cam_id)
             os.makedirs(self.vis_save_dir+f'{slide_id}', exist_ok=True)
             cv2.imwrite(self.vis_save_dir+f'{slide_id}/{slide_id}_{label_name}_cam_{cam_id}.png', vis)
             vis_merge_list.append(vis)
@@ -97,7 +97,7 @@ class VisGraphCAM():
         cv2.imwrite(self.vis_save_dir+f'{slide_id}/{slide_id}_{label_name}_all_types_ori.png', output_img)
 
 
-    def cam_processing(self, output_img, assign_matrix, p, coords, width, height, cam_id=0):
+    def cam_processing(self, output_img, assign_matrix, p, coords, width, height, patch_size=512, cam_id=0):
         output_img_copy =np.copy(output_img)
         gray = cv2.cvtColor(output_img, cv2.COLOR_BGR2GRAY)
         image_transformer_attribution = (output_img_copy - output_img_copy.min()) / (output_img_copy.max() - output_img_copy.min())
@@ -117,8 +117,7 @@ class VisGraphCAM():
                                     cam_matrix=cam_matrix, 
                                     wsi_width=width, 
                                     wsi_height=height, 
-                                    patch_size=512, 
-                                    grid_size=20)
+                                    patch_size=patch_size)
         vis = show_cam_on_image(image_transformer_attribution, mask)
         vis =  np.uint8(255 * vis) 
 
@@ -131,29 +130,33 @@ def show_cam_on_image(img, mask):
     cam = cam / np.max(cam)
     return cam
 
-def cam_to_mask_absolute(gray, coords, cam_matrix, wsi_width, wsi_height, patch_size=512, grid_size=20):
+def cam_to_mask_absolute(gray, coords, cam_matrix, wsi_width, wsi_height, patch_size=512):
     """
-    絶対座標とCAM行列から、grayサイズのマスク画像を生成する
-    gray: (h_r, w_r) サイズの縮小画像
-    coords: [[x1, y1], [x2, y2], ...] 画素単位の絶対座標
-    cam_matrix: CAM値 (N, 1) or (N,)
-    wsi_width, wsi_height: WSIのサイズ (例: 33863, 35842)
-    patch_size: 各パッチのサイズ (例: 512)
-    grid_size: gray上での分割数 (例: 20)
+    Generate a mask at the gray-image resolution from absolute coordinates and a CAM matrix.
+
+    Args:
+        gray: downscaled image with shape (h_r, w_r).
+        coords: array-like of [[x1, y1], [x2, y2], ...] containing absolute pixel coordinates.
+        cam_matrix: CAM values, shape (N, 1) or (N,).
+        wsi_width, wsi_height: full WSI dimensions in pixels (e.g., 33863, 35842).
+        patch_size: size of each patch in pixels (e.g., 512).
+
+    Returns:
+        A float32 mask (h_r, w_r) with CAM values placed at corresponding patch locations.
     """
     h_r, w_r = gray.shape
     mask = np.zeros((h_r, w_r), dtype=np.float32)
 
-    # 縮小倍率: gray ← WSI のスケール
+    # Scaling factors: map gray image coordinates to WSI scale
     scale_x = w_r / wsi_width
     scale_y = h_r / wsi_height
 
     for i, (x, y) in enumerate(coords):
-        # 左上座標をgrayスケールへ変換
+        # Convert top-left coordinates to gray-scale coordinates
         x1 = int(x * scale_x)
         y1 = int(y * scale_y)
 
-        # パッチサイズをgrayスケールで換算
+        # Convert patch size to gray-scale coordinates
         x2 = int((x + patch_size) * scale_x)
         y2 = int((y + patch_size) * scale_y)
 

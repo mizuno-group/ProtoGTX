@@ -33,8 +33,9 @@ COLORS = [
     '#ff1493','#7b68ee','#ffefd5','#ffb6c1'
 ]
 
-def get_mixture_plot(mixtures):
-    colors = COLORS
+def get_mixture_plot(mixtures, colors=None, upper_limit=0.55, coors=None):
+    if colors is None:
+        colors = COLORS
     cmap = {f'c{k}':v for k,v in enumerate(colors[:len(mixtures)])}
     mpl.rcParams['axes.spines.left'] = True
     mpl.rcParams['axes.spines.top'] = False
@@ -55,7 +56,7 @@ def get_mixture_plot(mixtures):
     ax.set_ylabel('Proportion / Mixture', fontsize=12)
     ax.set_yticks([0, 0.1, 0.2, 0.3, 0.4, 0.5])
     ax.set_yticklabels([0, 0.1, 0.2, 0.3, 0.4, 0.5], fontsize=12)
-    ax.set_ylim([0, 0.55])
+    ax.set_ylim([0, upper_limit])
     plt.close()
     return ax.get_figure()
 
@@ -63,9 +64,9 @@ def hex_to_rgb_mpl_255(hex_color):
     rgb = mcolors.to_rgb(hex_color)
     return tuple([int(x*255) for x in rgb])
 
-def get_default_cmap(n=32):
-    colors = COLORS
-    
+def get_default_cmap(n=32, colors=None):
+    if colors is None:
+        colors = COLORS
     colors = colors[:n]
     label2color_dict = dict(zip(range(n), [hex_to_rgb_mpl_255(x) for x in colors]))
     return label2color_dict
@@ -195,7 +196,7 @@ class VisP2PAttn():
         self.downsample = downsample
         self.n_prototypes = n_prototypes
 
-    def visualize_attn(self, slide_id, concept_attn, ind=0, proto_id=None):
+    def visualize_attn(self, slide_id, concept_attn, ind=0, proto_id=None, colors=None, upper_limit=0.55):
         slide_id = slide_id.split('.')[0]
         h5_feats_fpath = None
         for d in self.h5_feats_dirs:
@@ -229,13 +230,13 @@ class VisP2PAttn():
                 wsi,
                 coords, 
                 global_cluster_labels, 
-                label2color_dict=get_default_cmap(self.n_prototypes),
+                label2color_dict=get_default_cmap(self.n_prototypes, colors=colors),
                 vis_level=wsi.get_best_level_for_downsample(self.downsample),
                 patch_size=(self.patch_size, self.patch_size),
                 alpha=0.4,
             )
             display(cat_map.resize((cat_map.width//4, cat_map.height//4)))
-            display(get_mixture_plot(mixtures=counts/counts.sum()))
+            display(get_mixture_plot(counts/counts.sum(),colors=colors, upper_limit=upper_limit))
         else:
             cat_map = visualize_specific_proto(
                 wsi,
@@ -260,7 +261,7 @@ class VisP2P():
         self.downsample = downsample
         self.n_prototypes = n_prototypes
 
-    def visualize_initial_mapping(self, slide_id, proto_feats, sim_threshold=0.5, proto_id=None):
+    def visualize_initial_mapping(self, slide_id, proto_feats, sim_threshold=0.5, proto_id=None, colors=None, upper_limit=0.55):
         slide_id = slide_id.split('.')[0]
         h5_feats_fpath = None
         for d in self.h5_feats_dirs:
@@ -309,7 +310,7 @@ class VisP2P():
                 alpha=0.4,
             )
             display(cat_map.resize((cat_map.width//4, cat_map.height//4)))
-            display(get_mixture_plot(mixtures=counts/counts.sum()))
+            display(get_mixture_plot(counts/counts.sum(),colors=colors, upper_limit=upper_limit))
         else:
             cat_map = visualize_specific_proto(
                 wsi,

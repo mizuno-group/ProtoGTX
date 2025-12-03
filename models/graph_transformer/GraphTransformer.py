@@ -1,8 +1,8 @@
-import sys
 import os
 import torch
-import random
 import numpy as np
+
+from os import path
 
 from torch.autograd import Variable
 from torch.nn.parameter import Parameter
@@ -16,12 +16,13 @@ from .gcn import GCNBlock
 from torch_geometric.nn import GCNConv, DenseGraphConv, dense_mincut_pool
 from torch.nn import Linear
 class Classifier(nn.Module):
-    def __init__(self, n_class, n_features: int = 512):
+    def __init__(self, n_class, n_features=512, graphcam_dir='graphcam'):
         super(Classifier, self).__init__()
 
         self.embed_dim = 64
         self.num_layers = 3
         self.node_cluster_num = 100
+        self.graphcam_dir = graphcam_dir
 
         self.transformer = VisionTransformer(num_classes=n_class, embed_dim=self.embed_dim)
         self.cls_token = nn.Parameter(torch.zeros(1, 1, self.embed_dim))
@@ -54,16 +55,15 @@ class Classifier(nn.Module):
 
         if graphcam_flag:
             s_matrix = torch.argmax(s[0], dim=1)
-            from os import path
-            os.makedirs('graphcam', exist_ok=True)
-            torch.save(s_matrix, path.join('graphcam', 's_matrix.pt'))
-            torch.save(s[0], path.join('graphcam', 's_matrix_ori.pt'))
-            
-            if path.exists(path.join('graphcam', 'att_1.pt')):
-                os.remove(path.join('graphcam', 'att_1.pt'))
-                os.remove(path.join('graphcam', 'att_2.pt'))
-                os.remove(path.join('graphcam', 'att_3.pt'))
-    
+
+            os.makedirs(self.graphcam_dir, exist_ok=True)
+            torch.save(s_matrix, path.join(self.graphcam_dir, 's_matrix.pt'))
+            torch.save(s[0], path.join(self.graphcam_dir, 's_matrix_ori.pt'))
+
+            if path.exists(path.join(self.graphcam_dir, 'att_1.pt')):
+                os.remove(path.join(self.graphcam_dir, 'att_1.pt'))
+                os.remove(path.join(self.graphcam_dir, 'att_2.pt'))
+                os.remove(path.join(self.graphcam_dir, 'att_3.pt'))
         X, adj, mc1, o1 = dense_mincut_pool(X, adj, s, mask)
         mc1 = safe_loss(mc1)
         o1 = safe_loss(o1)
@@ -83,8 +83,7 @@ class Classifier(nn.Module):
         if graphcam_flag:
             print('GraphCAM enabled')
             p = F.softmax(out)
-            torch.save(p, path.join('graphcam', 'prob.pt'))
-            index = np.argmax(out.cpu().data.numpy(), axis=-1)
+            torch.save(p, path.join(self.graphcam_dir, 'prob.pt'))
 
             for index_ in range(p.size(1)):
                 one_hot = np.zeros((1, out.size()[-1]), dtype=np.float32)
@@ -99,7 +98,7 @@ class Classifier(nn.Module):
                 cam = self.transformer.relprop(torch.tensor(one_hot_vector).to(X.device), method="transformer_attribution", is_ablation=False, 
                                             start_layer=0, **kwargs)
 
-                torch.save(cam, path.join('graphcam', 'cam_{}.pt'.format(index_)))
+                torch.save(cam, path.join(self.graphcam_dir, 'cam_{}.pt'.format(index_)))
 
         return pred,labels,loss
 

@@ -28,7 +28,7 @@ class VisGraphCAM():
         self.class_dict = class_dict
         self.stack_auto = stack_auto
 
-    def visualize_graphcam(self, sample_batched, n_class=3, patch_size=512, ind=0):
+    def visualize_graphcam(self, sample_batched, n_class=3, patch_size=512, ind=0, save_mask=False):
         slide_id = sample_batched['id'][ind].split('.')[0]
         label_id = int(sample_batched['label'][0])
         label_name = [k for k,v in self.class_dict.items() if v==label_id][0]
@@ -78,10 +78,12 @@ class VisGraphCAM():
 
         vis_merge_list = []
         for cam_id in range(n_class):
-            vis = self.cam_processing(output_img, assign_matrix, p, coords, width, height, patch_size=patch_size, cam_id=cam_id)
+            vis, mask = self.cam_processing(output_img, assign_matrix, p, coords, width, height, patch_size=patch_size, cam_id=cam_id)
             os.makedirs(self.vis_save_dir+f'{slide_id}', exist_ok=True)
             cv2.imwrite(self.vis_save_dir+f'{slide_id}/{slide_id}_{label_name}_cam_{cam_id}.png', vis)
             vis_merge_list.append(vis)
+            if save_mask:
+                torch.save(torch.from_numpy(mask), self.vis_save_dir+f'{slide_id}/{slide_id}_{label_name}_mask_{cam_id}.pt')
         vis_merge = cv2.hconcat([output_img]+vis_merge_list)
 
         h, w, _ = output_img.shape
@@ -95,6 +97,7 @@ class VisGraphCAM():
 
         cv2.imwrite(self.vis_save_dir+f'{slide_id}/{slide_id}_{label_name}_all_types_cam_all.png', vis_merge)
         cv2.imwrite(self.vis_save_dir+f'{slide_id}/{slide_id}_{label_name}_all_types_ori.png', output_img)
+
 
 
     def cam_processing(self, output_img, assign_matrix, p, coords, width, height, patch_size=512, cam_id=0):
@@ -121,7 +124,7 @@ class VisGraphCAM():
         vis = show_cam_on_image(image_transformer_attribution, mask)
         vis =  np.uint8(255 * vis) 
 
-        return vis
+        return vis, mask
 
 def show_cam_on_image(img, mask):
     heatmap = cv2.applyColorMap(np.uint8(255 * mask), cv2.COLORMAP_JET)

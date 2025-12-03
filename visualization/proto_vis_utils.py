@@ -430,6 +430,12 @@ class VisRelatedPatches():
                         patch = wsi.read_region((x, y), 0, (self.patch_size, self.patch_size)).convert("RGB")
     
                         #patch = wsi.read_region((coord[0], coord[1]), 0, (self.patch_size, self.patch_size)).convert("RGB")
+                        if self.square_size is not None:
+                            draw = ImageDraw.Draw(patch)
+                            cx, cy = patch.width // 2, patch.height // 2
+                            x0, y0 = cx - self.square_size // 2, cy - self.square_size // 2
+                            x1, y1 = cx + self.square_size // 2, cy + self.square_size // 2
+                            draw.rectangle([x0, y0, x1, y1], outline="black", width=10)
                         display(patch.resize((patch.width//self.scale, patch.height//self.scale)))
                         wsi.close()
 
@@ -459,9 +465,6 @@ class VisRelatedPatches():
                         x0, y0 = cx - self.square_size // 2, cy - self.square_size // 2
                         x1, y1 = cx + self.square_size // 2, cy + self.square_size // 2
                         draw.rectangle([x0, y0, x1, y1], outline="black", width=10)
-
-
-                    #patch = wsi.read_region((coord[0], coord[1]), 0, (self.patch_size, self.patch_size)).convert("RGB")
                     display(patch.resize((patch.width//self.scale, patch.height//self.scale)))
                     wsi.close()
 

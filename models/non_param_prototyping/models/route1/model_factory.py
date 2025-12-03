@@ -161,6 +161,7 @@ def prepare_emb(datasets, args, mode='classification'):
         embeddings = load_pkl(embeddings_fpath)
         for k, loader in datasets.items():
             print(f'\n\tEmbedding already exists! Loading {k}', end=' ')
+            k = k.split('_')[0]  # in case of 'train_fold0', 'val_fold0', etc.
             loader.dataset.X, loader.dataset.y = embeddings[k]['X'], embeddings[k]['y']
     else:
         os.makedirs(j_(args.split_dir, 'embeddings'), exist_ok=True)

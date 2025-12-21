@@ -28,7 +28,7 @@ class VisGraphCAM():
         self.class_dict = class_dict
         self.stack_auto = stack_auto
 
-    def visualize_graphcam(self, sample_batched, n_class=3, patch_size=512, ind=0, save_mask=False):
+    def visualize_graphcam(self, sample_batched, n_class=3, patch_size=512, ind=0, save_mask=False, clip_thres=0.4):
         slide_id = sample_batched['id'][ind].split('.')[0]
         label_id = int(sample_batched['label'][0])
         label_name = [k for k,v in self.class_dict.items() if v==label_id][0]
@@ -74,7 +74,7 @@ class VisGraphCAM():
         assign_matrix = m(assign_matrix)
 
         # Thresholding for better visualization
-        p = np.clip(p, 0.4, 1)  # NOTE: default (0.4, 1)
+        p = np.clip(p, clip_thres, 1)  # NOTE: default (0.4, 1)
 
         vis_merge_list = []
         for cam_id in range(n_class):
@@ -153,6 +153,12 @@ def cam_to_mask_absolute(gray, coords, cam_matrix, wsi_width, wsi_height, patch_
     # Scaling factors: map gray image coordinates to WSI scale
     scale_x = w_r / wsi_width
     scale_y = h_r / wsi_height
+
+    n_coords = len(coords)
+    n_cam = cam_matrix.shape[0] if hasattr(cam_matrix, "shape") else len(cam_matrix)
+    n = min(n_coords, n_cam)
+    if n_coords != n_cam:
+        print(f"[WARN] coords ({n_coords}) != cam_matrix ({n_cam}) -> using min={n}")
 
     for i, (x, y) in enumerate(coords):
         # Convert top-left coordinates to gray-scale coordinates

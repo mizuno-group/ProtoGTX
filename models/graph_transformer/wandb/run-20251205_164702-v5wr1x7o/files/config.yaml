@@ -1,0 +1,79 @@
+_wandb:
+    value:
+        cli_version: 0.23.0
+        e:
+            cs4yhv37pirlwcxliy07oyqo55aabloc:
+                codePath: /workspace/HDDX/Pathology_Graph/workspace3/benchmarking/BRACS/baseline/251205_gt_gpfm_new_benchmarking.py
+                cpu_count: 16
+                cpu_count_logical: 32
+                cudaVersion: "13.0"
+                disk:
+                    /:
+                        total: "982240026624"
+                        used: "135420575744"
+                email: phazuma19980625@gmail.com
+                executable: /opt/251114_patho_env/bin/python
+                git:
+                    commit: d52ff32d51d47c39145016570282152b429ccb64
+                    remote: https://github.com/groovy-phazuma/PathoGraphX.git
+                gpu: NVIDIA GeForce RTX 4090
+                gpu_count: 1
+                gpu_nvidia:
+                    - architecture: Ada
+                      cudaCores: 16384
+                      memoryTotal: "25757220864"
+                      name: NVIDIA GeForce RTX 4090
+                      uuid: GPU-d0db265e-a575-5017-d9ac-ad94db3b2755
+                host: b2b33fb3c50d
+                memory:
+                    total: "134776754176"
+                os: Linux-6.14.0-35-generic-x86_64-with-glibc2.35
+                program: /workspace/HDDX/Pathology_Graph/workspace3/benchmarking/BRACS/baseline/251205_gt_gpfm_new_benchmarking.py
+                python: CPython 3.11.4
+                root: /workspace/HDDX/Pathology_Graph/github/PathoGraphX/models/graph_transformer
+                startedAt: "2025-12-05T07:47:02.898996Z"
+                writerId: cs4yhv37pirlwcxliy07oyqo55aabloc
+        m: []
+        python_version: 3.11.4
+        t:
+            "1":
+                - 1
+                - 11
+                - 41
+                - 49
+                - 77
+                - 105
+            "2":
+                - 1
+                - 11
+                - 41
+                - 49
+                - 77
+                - 105
+            "3":
+                - 2
+                - 13
+                - 16
+            "4": 3.11.4
+            "5": 0.23.0
+            "6": 4.50.3
+            "8":
+                - 1
+            "10":
+                - 20
+            "12": 0.23.0
+            "13": linux-x86_64
+batch_size:
+    value: 16
+class:
+    value: 3
+graphcam:
+    value: false
+learning_rate:
+    value: 0.001
+n_features:
+    value: 1536
+num_epochs:
+    value: 50
+site:
+    value: BRACS

@@ -21,17 +21,18 @@ import torch
 
 
 class CLAMGraphBuilder():
-    def __init__(self, patch_dir, feature_dir, qc_info_dir, wsi_dir, save_dir, do_qc=True):
+    def __init__(self, patch_dir, feature_dir, qc_info_dir, wsi_dir, save_dir, do_qc=True, wsi_ext = '.svs'):
         self.patch_dir = patch_dir
         self.feature_dir = feature_dir
         self.qc_info_dir = qc_info_dir
         self.wsi_dir = wsi_dir
         self.save_dir = save_dir
+        self.wsi_ext = wsi_ext
 
         self.patch_files = sorted(glob(os.path.join(patch_dir, 'patches/*.h5')))
         self.feature_files = sorted(glob(os.path.join(feature_dir, 'feats_h5/*.h5')))
         self.qc_info_files = sorted(glob(os.path.join(qc_info_dir, '*.h5')))
-        wsi_pattern = os.path.join(wsi_dir, '**', '*.*')
+        wsi_pattern = os.path.join(wsi_dir, '**', f'*{wsi_ext}')
         self.wsi_files = glob(wsi_pattern, recursive=True)
         self.do_qc = do_qc
 
@@ -45,7 +46,7 @@ class CLAMGraphBuilder():
     def build_graphs(self, patch_size=512):
         graphs = []
 
-        file_names = [t.split('/')[-1].split('.')[0] for t in self.patch_files]
+        file_names = [t.split('/')[-1].split('.h5')[0] for t in self.patch_files]
         for file_name in tqdm(file_names):
             patch_path = os.path.join(self.patch_dir, 'patches', f'{file_name}.h5')
             feature_path = os.path.join(self.feature_dir, 'feats_h5', f'{file_name}.h5')

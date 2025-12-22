@@ -43,11 +43,22 @@ class CLAMGraphBuilder():
         print(f"QC: {self.do_qc}")
 
 
-    def build_graphs(self, patch_size=512):
-        graphs = []
+    def build_graphs(self, patch_size=512, overwrite=False):
 
         file_names = [t.split('/')[-1].split('.h5')[0] for t in self.patch_files]
         for file_name in tqdm(file_names):
+
+            # save adjacency matrix and passed_features
+            save_dir = os.path.join(self.save_dir, file_name)
+            if not os.path.exists(save_dir):
+                os.makedirs(save_dir)
+            else:
+                if overwrite:
+                    print(f"Overwriting existing graph for {file_name}...")
+                else:
+                    print(f"Graph for {file_name} already exists, skipping...")
+                continue
+
             patch_path = os.path.join(self.patch_dir, 'patches', f'{file_name}.h5')
             feature_path = os.path.join(self.feature_dir, 'feats_h5', f'{file_name}.h5')
             qc_info_path = os.path.join(self.qc_info_dir, f'{file_name}_qc_info.h5')
@@ -86,20 +97,22 @@ class CLAMGraphBuilder():
             passed_coords = coords[passed_ids]
             passed_features = features[passed_ids]
 
-            adj = build_adjacency(passed_coords, patch_size=512)
+            adj = build_sparse_adjacency(passed_coords, patch_size=patch_size)
 
             assert adj.shape[0] == passed_features.shape[0]
-
-            # save adjacency matrix and passed_features
-            save_dir = os.path.join(self.save_dir, file_name)
-            os.makedirs(save_dir, exist_ok=True)
 
             adj_save_path = os.path.join(save_dir, f'adj_s_{file_name}.pt')
             torch.save(adj, adj_save_path)
 
             features_save_path = os.path.join(save_dir, f'features_{file_name}.pt')
             torch.save(torch.from_numpy(passed_features).float(), features_save_path)
-
+    
+    def symmetric_qc(self, adj_candi=[]):
+        #adj_candi = sorted(glob(f"{BASE_DIR}/datasource/TCGA/NSCLC/graphs/251219/*/adj_s_*.pt"))
+        for p in tqdm(adj_candi):
+            adj = torch.load(p)
+            if not is_symmetric_sparse(adj):
+                print(f"Not symmetric: {p}")
 
 
 def build_adjacency(coords: np.ndarray, patch_size: int = 512) -> torch.Tensor:
@@ -121,10 +134,63 @@ def build_adjacency(coords: np.ndarray, patch_size: int = 512) -> torch.Tensor:
             j = coord_to_index.get(neighbor)
             if j is not None:
                 adj[i, j] = 1
-                adj[j, i] = 1  # 対称にする
+                adj[j, i] = 1  # symmetric
 
     return torch.from_numpy(adj).float().cuda()
 
+def build_sparse_adjacency(coords: np.ndarray, patch_size: int = 512, device: str = "cpu") -> torch.Tensor:
+    coords = np.asarray(coords)
+    N = coords.shape[0]
+    coord_to_index = { (int(x), int(y)): i for i, (x, y) in enumerate(coords) }
+
+    directions = [
+        (-patch_size, -patch_size), (0, -patch_size), (patch_size, -patch_size),
+        (-patch_size, 0),                              (patch_size, 0),
+        (-patch_size, patch_size),  (0, patch_size),  (patch_size, patch_size),
+    ]
+
+    rows = []
+    cols = []
+    for i, (x, y) in enumerate(coords):
+        x = int(x); y = int(y)
+        for dx, dy in directions:
+            j = coord_to_index.get((x + dx, y + dy))
+            if j is not None:
+                rows.append(i); cols.append(j)
+
+    indices = torch.tensor([rows, cols], dtype=torch.long, device=device)
+    values = torch.ones(indices.shape[1], dtype=torch.uint8, device=device)
+
+    adj = torch.sparse_coo_tensor(indices, values, size=(N, N), device=device).coalesce()
+    return adj
+
+
+def build_edge_index(coords: np.ndarray, patch_size: int = 512, device: str = "cpu") -> torch.Tensor:
+
+    coords = np.asarray(coords)
+    N = coords.shape[0]
+
+    # (x, y) -> node id
+    coord_to_index = { (int(x), int(y)): i for i, (x, y) in enumerate(coords) }
+
+    directions = [
+        (-patch_size, -patch_size), (0, -patch_size), (patch_size, -patch_size),
+        (-patch_size, 0),                              (patch_size, 0),
+        (-patch_size, patch_size),  (0, patch_size),  (patch_size, patch_size),
+    ]
+
+    src = []
+    dst = []
+
+    for i, (x, y) in enumerate(coords):
+        x = int(x); y = int(y)
+        for dx, dy in directions:
+            j = coord_to_index.get((x + dx, y + dy))
+            if j is not None:
+                src.append(i); dst.append(j)
+
+    edge_index = torch.tensor([src, dst], dtype=torch.long, device=device)
+    return edge_index
 
 def visualize_patch_grid(coords, adj, wsi, patch_size=512, patch_level=0, max_examples=3, neighbor_n=5):
     adj = adj.cpu().numpy()
@@ -139,8 +205,9 @@ def visualize_patch_grid(coords, adj, wsi, patch_size=512, patch_level=0, max_ex
         (-1,  0), ( 0,  0), ( 1,  0),
         (-1,  1), ( 0,  1), ( 1,  1)
     ]
-
-    for count, center_idx in enumerate(target_indices):
+    shuffle_indices = np.random.permutation(target_indices)
+    #for count, center_idx in enumerate(target_indices):
+    for count, center_idx in enumerate(shuffle_indices):
         if count >= max_examples:
             break
 
@@ -170,3 +237,50 @@ def visualize_patch_grid(coords, adj, wsi, patch_size=512, patch_level=0, max_ex
         plt.suptitle(f"Center patch at {center_coord} (index {center_idx})")
         plt.tight_layout()
         plt.show()
+
+def _sorted_linear_keys(adj: torch.Tensor):
+    """
+    Return sorted linear keys (i*N + j) and aligned values (if any) for a sparse COO tensor.
+    """
+    assert adj.is_sparse, "adj must be a sparse COO tensor"
+    adj = adj.coalesce()
+    idx = adj.indices()          # [2, nnz]
+    N = adj.size(0)
+    keys = idx[0] * N + idx[1]   # [nnz]
+    order = torch.argsort(keys)
+    keys = keys[order]
+    vals = adj.values()[order]
+    return keys, vals
+
+def is_symmetric_sparse(adj: torch.Tensor, *, rtol=0.0, atol=0.0) -> bool:
+    """
+    Robust symmetry check for sparse COO.
+    - For bool: checks edge existence symmetry.
+    - For numeric: checks both structure and value symmetry (with tolerance).
+    """
+    assert adj.is_sparse, "adj must be a sparse COO tensor"
+    assert adj.dim() == 2 and adj.size(0) == adj.size(1), "adj must be square (N x N)"
+
+    A = adj.coalesce()
+    AT = A.transpose(0, 1).coalesce()
+
+    kA, vA = _sorted_linear_keys(A)
+    kT, vT = _sorted_linear_keys(AT)
+
+    # same sparsity pattern?
+    if kA.numel() != kT.numel():
+        return False
+    if not torch.equal(kA, kT):
+        return False
+
+    # values check
+    if A.dtype == torch.bool:
+        # existence only
+        # (values may not all be True depending on how it was built, so check equality)
+        return torch.equal(vA, vT)
+
+    # numeric: allow tolerance if float
+    if torch.is_floating_point(vA) or torch.is_complex(vA):
+        return torch.allclose(vA, vT, rtol=rtol, atol=atol)
+    else:
+        return torch.equal(vA, vT)

@@ -260,18 +260,10 @@ class VisP2P():
         self.patch_size = patch_size
         self.downsample = downsample
         self.n_prototypes = n_prototypes
-
-    def visualize_initial_mapping(self, slide_id, proto_feats, sim_threshold=0.5, proto_id=None, colors=None, upper_limit=0.55):
+    
+    def set_condition(self, slide_id):
         slide_id = slide_id.split('.')[0]
-        h5_feats_fpath = None
-        for d in self.h5_feats_dirs:
-            tmp_paths = glob(f'{d}/*.h5')
-            for path in tmp_paths:
-                if slide_id in path:
-                    h5_feats_fpath = path
-                    break
-            if h5_feats_fpath is not None:
-                break
+
         wsi_path = None
         for d in self.wsi_dirs:
             tmp_paths = glob(f'{d}/*')
@@ -281,12 +273,30 @@ class VisP2P():
                     break
             if wsi_path is not None:
                 break
-
         wsi = openslide.open_slide(wsi_path)
-        coords = h5py.File(h5_feats_fpath, 'r')['coords'][:]
-        feats = h5py.File(h5_feats_fpath, 'r')['features'][:]
 
-        feats_tensor = torch.Tensor(feats)
+        h5_feats_fpath = None
+        for d in self.h5_feats_dirs:
+            tmp_paths = glob(f'{d}/*.h5')
+            for path in tmp_paths:
+                if slide_id in path:
+                    h5_feats_fpath = path
+                    break
+            if h5_feats_fpath is not None:
+                break
+        
+        feats = h5py.File(h5_feats_fpath, 'r')['features'][:]
+        coords = h5py.File(h5_feats_fpath, 'r')['coords'][:]
+
+        self.wsi = wsi
+        self.feats = feats
+        self.coords = coords
+    
+    def return_initial_mapping(self, slide_id, proto_feats, sim_threshold=0.5):
+        slide_id = slide_id.split('.')[0]
+        self.set_condition(slide_id)
+
+        feats_tensor = torch.Tensor(self.feats)
         proto_tensor = torch.Tensor(proto_feats)
 
         sim = torch.nn.functional.cosine_similarity(
@@ -297,15 +307,25 @@ class VisP2P():
 
         sim[sim < sim_threshold] = 0.0  # apply threshold
         global_cluster_labels = torch.argmax(sim, dim=1).numpy()
+
+        return global_cluster_labels
+
+    def visualize_initial_mapping(self, slide_id, proto_feats, sim_threshold=0.5, proto_id=None, colors=None, upper_limit=0.55):
+
+        slide_id = slide_id.split('.')[0]
+        self.set_condition(slide_id)
+
+        global_cluster_labels = self.return_initial_mapping(slide_id, proto_feats, sim_threshold)
+
         counts = np.bincount(global_cluster_labels, minlength=self.n_prototypes)
 
         if proto_id is None:
             cat_map = visualize_categorical_heatmap(
-                wsi,
-                coords, 
+                self.wsi,
+                self.coords, 
                 global_cluster_labels, 
                 label2color_dict=get_default_cmap(self.n_prototypes),
-                vis_level=wsi.get_best_level_for_downsample(self.downsample),
+                vis_level=self.wsi.get_best_level_for_downsample(self.downsample),
                 patch_size=(self.patch_size, self.patch_size),
                 alpha=0.4,
             )
@@ -313,11 +333,11 @@ class VisP2P():
             display(get_mixture_plot(counts/counts.sum(),colors=colors, upper_limit=upper_limit))
         else:
             cat_map = visualize_specific_proto(
-                wsi,
-                coords, 
+                self.wsi,
+                self.coords, 
                 global_cluster_labels, 
                 label2color_dict=get_default_cmap(self.n_prototypes),
-                vis_level=wsi.get_best_level_for_downsample(self.downsample),
+                vis_level=self.wsi.get_best_level_for_downsample(self.downsample),
                 patch_size=(self.patch_size, self.patch_size),
                 alpha=0.4,
                 proto_id=proto_id

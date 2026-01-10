@@ -43,7 +43,7 @@ class CLAMGraphBuilder():
         print(f"QC: {self.do_qc}")
 
 
-    def build_graphs(self, patch_size=512, overwrite=False):
+    def build_graphs(self, patch_size=512, overwrite=False, sparse=False):
 
         file_names = [t.split('/')[-1].split('.h5')[0] for t in self.patch_files]
         for file_name in tqdm(file_names):
@@ -97,7 +97,10 @@ class CLAMGraphBuilder():
             passed_coords = coords[passed_ids]
             passed_features = features[passed_ids]
 
-            adj = build_sparse_adjacency(passed_coords, patch_size=patch_size)
+            if sparse:
+                adj = build_sparse_adjacency(passed_coords, patch_size=patch_size)
+            else:
+                adj = build_adjacency(passed_coords, patch_size=patch_size)
 
             assert adj.shape[0] == passed_features.shape[0]
 
@@ -193,8 +196,12 @@ def build_edge_index(coords: np.ndarray, patch_size: int = 512, device: str = "c
     return edge_index
 
 def visualize_patch_grid(coords, adj, wsi, patch_size=512, patch_level=0, max_examples=3, neighbor_n=5):
-    adj = adj.cpu().numpy()
     neighbor_counts = adj.sum(axis=1)
+    # print frequency of neighbor counts
+    unique, counts = np.unique(neighbor_counts, return_counts=True)
+    print("Neighbor counts frequency:")
+    for u, c in zip(unique, counts):
+        print(f"  {int(u)} neighbors: {c} patches")
     target_indices = np.where(neighbor_counts == neighbor_n)[0]  # center patch
 
     # make coordinate to index mapping

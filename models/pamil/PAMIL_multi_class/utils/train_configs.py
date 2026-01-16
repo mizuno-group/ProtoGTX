@@ -74,9 +74,9 @@ class Settings:
 
     # wandb settings
     entity="topo_pathology"
-    project="250922_GraphPrototyping_route2"
+    project="251021_benchmarking"
     group="PAMIL_CPTAC"
-    name="250922_run_my_pamil"
+    name="251021_run_my_pamil_split1"
 
 def get_settings():
     return Settings(

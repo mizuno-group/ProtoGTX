@@ -75,9 +75,9 @@ class abmil(nn.Module):
 class PAMIL(nn.Module):        
     def __init__(self, gate = True, size_arg = 'small', dropout = False, n_protos = 10, 
                  n_classes = 3, proto_path = None, proto_pred=False, proto_weight=0.5,
-                 inst_pred=False, k_sample=8):
+                 inst_pred=False, k_sample=8, fea_dim=1024):
         super(PAMIL, self).__init__()
-        self.size_dict = {"small": [1024, 512, 256], "big": [768, 512, 384]}
+        self.size_dict = {"small": [fea_dim, 512, 256], "big": [768, 512, 384]}
         self.abmil_size = [n_protos, n_protos // 2]
         size = self.size_dict[size_arg]
         self.n_protos = n_protos

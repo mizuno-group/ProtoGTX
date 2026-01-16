@@ -119,6 +119,8 @@ def train(datasets, cur, args):
     """   
         train for a single fold
     """
+    device=torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
     print('\nTraining Fold {}!'.format(cur))
     writer_dir = os.path.join(args.results_dir, str(cur))
     if not os.path.isdir(writer_dir):
@@ -159,6 +161,7 @@ def train(datasets, cur, args):
         model_dict.update({'proto_weight': args.proto_weight})
         model_dict.update({'inst_pred': args.inst_pred})
         model_dict.update({'k_sample': args.k_sample})
+        model_dict.update({'fea_dim': args.fea_dim})
         model = PAMIL(**model_dict)
         
     model.to(device)

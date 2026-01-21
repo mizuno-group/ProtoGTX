@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """
-Created on 2026-01-19 (Mon) 20:49:13
+Created on 2026-01-20 (Tue) 14:38:05
+
+TransMIL: Transformer based Correlated Multiple Instance Learning for Whole Slide Image Classification [NeurIPS 2021]
 
 @author: I.Azuma
 """
@@ -19,8 +21,9 @@ import torch
 import torch.nn.functional as F
 
 sys.path.append(f'{BASE_DIR}/github/PathoGraphX/models')
-from wikg.model import WiKG
-from baseline_utils.dataset_generic_npy import get_split_loader, Generic_MIL_Dataset
+from transmil.TransMIL import TransMIL
+from transmil.lookahead import Lookahead
+from baseline_utils.dataset_generic_npy import get_split_loader
 
 
 def train_one_epoch(model, train_loader, criterion, optimizer, device, epoch):
@@ -32,7 +35,8 @@ def train_one_epoch(model, train_loader, criterion, optimizer, device, epoch):
         optimizer.zero_grad()
         data = data.to(device)
         label = label.to(device)
-        logits = model(data)
+        results_dict = model(data)
+        logits = results_dict['logits']
 
         loss = criterion(logits, label)
         loss.backward()
@@ -57,14 +61,14 @@ def val_one_epoch(model, val_loader, device, data_type='val'):
     for i, (data, label, cors, _) in enumerate(val_loader):
         data = data.to(device)
         label = label.to(device)
-        output = model(data)
+        results_dict = model(data)
+        output = results_dict['logits']
         labels = torch.cat([labels, label], dim=0)
         preds = torch.cat([preds, output.detach()], dim=0)
 
     return preds.cpu(), labels.cpu()
 
-def cal_metrics(logits, labels, num_classes):       # logits:[batch_size, num_classes]   labels:[batch_size, ]
-    # accuracy
+def cal_metrics(logits, labels, num_classes):
     predicted_classes = torch.argmax(logits, dim=1)
     accuracy = accuracy_score(labels.numpy(), predicted_classes.numpy())
 
@@ -99,7 +103,7 @@ def cal_metrics(logits, labels, num_classes):       # logits:[batch_size, num_cl
 
     return accuracy, auc, f1, kappa, macro_specificity, confusion_mat
 
-def train_wikg(datasets, args):
+def train_transmil(datasets, args):
     device=torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     train_dataset, val_dataset, test_dataset = datasets
@@ -108,9 +112,11 @@ def train_wikg(datasets, args):
     test_loader = get_split_loader(test_dataset, testing = args.testing)
     print('Done!')
 
-    model = WiKG(dim_in=args.embed_dim, dim_hidden=512, topk=6, n_classes=args.n_classes, agg_type='bi-interaction', dropout=0.3, pool='mean').to(device)
+    model = TransMIL(dim_in=args.embed_dim, n_classes=args.n_classes).to(device)
 
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-4, weight_decay=1e-5)
+    #optimizer = torch.optim.Adam(model.parameters(), lr=1e-4, weight_decay=1e-5)
+    base_optimizer = torch.optim.RAdam(model.parameters(), lr=2e-4, weight_decay=1e-5)
+    optimizer = Lookahead(base_optimizer, alpha=0.5, k=6)
     criterion = torch.nn.CrossEntropyLoss()
 
     weight_dir = os.path.join(args.save_dir, "weight")
@@ -163,14 +169,15 @@ def train_wikg(datasets, args):
             csv_writer = csv.writer(csvfile)
             csv_writer.writerow([epoch+1, val_acc, val_auc, val_f1, val_kappa, val_specificity])
 
-def test_wikg(datasets, args):
+
+def test_transmil(datasets, args):
     device=torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     train_dataset, val_dataset, test_dataset = datasets
     test_loader = get_split_loader(test_dataset, testing = args.testing)
     print('Done!')
 
-    model = WiKG(dim_in=args.embed_dim, dim_hidden=512, topk=6, n_classes=args.n_classes, agg_type='bi-interaction', dropout=0.3, pool='mean').to(device)
+    model = TransMIL(dim_in=args.embed_dim, n_classes=args.n_classes).to(device)
 
     weight_dir = os.path.join(args.save_dir, "weight")
 
@@ -209,6 +216,3 @@ def test_wikg(datasets, args):
     # --- 詳細レポート（各クラス別F1など） ---
     print("\nDetailed classification report:")
     print(classification_report(y_true, y_pred, digits=4))
-
-
-

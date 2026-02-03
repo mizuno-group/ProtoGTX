@@ -1,3 +1,6 @@
+models/graph_prototyping/models/route4/wandb/*
+models/graph_transformer/wandb/*
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

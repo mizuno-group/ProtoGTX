@@ -1,0 +1,23 @@
+# Path settings
+paths:
+  data_path: "./splits/CPTAC/graphs"
+  expl_path: "./splits/CPTAC/split_0/expl_16x16"
+  train_set: "./splits/CPTAC/split_0/train_set.txt"
+  val_set: "./splits/CPTAC/split_0/val_set.txt"
+  test_set: "./splits/CPTAC/split_0/test_set.txt"
+  save_dir: "./splits/CPTAC/split_0/results/"
+
+# Model parameters
+model:
+  n_class: 3
+  n_features: 1536
+  task_name: "GraphCAM"
+  site: "LUAD"
+
+# Training parameters
+train:
+  batch_size: 8
+  num_epochs: 50
+  lr: 0.001
+  log_interval: 10
+  resume: ""

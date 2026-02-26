@@ -5,7 +5,7 @@ from __future__ import absolute_import, division, print_function
 
 
 import torch
-from utils.metrics import ConfusionMatrix
+from protogtx.utils.metrics import ConfusionMatrix
 
 # torch.cuda.synchronize()
 # torch.backends.cudnn.benchmark = True

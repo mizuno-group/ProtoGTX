@@ -6,7 +6,7 @@ Reference
 - https://github.com/IBM/concept_transformer/blob/main/ctc/vit.py
 
 
-@author: I.Azuma
+@author: I.XXXX
 """
 import os
 import numpy as np

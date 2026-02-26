@@ -196,7 +196,7 @@ class VisP2PAttn():
         self.downsample = downsample
         self.n_prototypes = n_prototypes
 
-    def visualize_attn(self, slide_id, concept_attn, ind=0, proto_id=None, colors=None, upper_limit=0.55):
+    def visualize_attn(self, slide_id, concept_attn, ind=0, proto_id=None, colors=None, upper_limit=0.55, alpha=0.4):
         slide_id = slide_id.split('.')[0]
         h5_feats_fpath = None
         for d in self.h5_feats_dirs:
@@ -233,7 +233,7 @@ class VisP2PAttn():
                 label2color_dict=get_default_cmap(self.n_prototypes, colors=colors),
                 vis_level=wsi.get_best_level_for_downsample(self.downsample),
                 patch_size=(self.patch_size, self.patch_size),
-                alpha=0.4,
+                alpha=alpha,
             )
             display(cat_map.resize((cat_map.width//4, cat_map.height//4)))
             display(get_mixture_plot(counts/counts.sum(),colors=colors, upper_limit=upper_limit))
@@ -245,7 +245,7 @@ class VisP2PAttn():
                 label2color_dict=get_default_cmap(self.n_prototypes),
                 vis_level=wsi.get_best_level_for_downsample(self.downsample),
                 patch_size=(self.patch_size, self.patch_size),
-                alpha=0.4,
+                alpha=alpha,
                 proto_id=proto_id
             )
             display(cat_map.resize((cat_map.width//4, cat_map.height//4)))
